@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pizza Shift & Money Tracker</title>
+<title>PART TIME WORK EARNINGS</title>
 <style>
 :root{--bg:#f5f6f8;--card:#fff;--text:#1f2937;--muted:#6b7280;--accent:#e31837;--green:#16803c;--border:#e5e7eb;--blue:#2563eb}
 *{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
@@ -36,7 +36,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 </head>
 <body>
 <div id="authScreen" class="auth-screen"><div class="auth-card"><h2>🍕 Welcome</h2><p id="authMessage">Sign in to keep your shifts, earnings, and expenses private to your account.</p><div id="authTabs" class="auth-tabs"><button id="loginTab" class="active" type="button">Sign in</button><button id="registerTab" type="button">Create account</button></div><form id="loginForm" class="auth-form"><div><label>Email</label><input id="loginEmail" type="email" autocomplete="email" required></div><div><label>Password</label><input id="loginPassword" type="password" autocomplete="current-password" required></div><button class="primary">Sign in</button><button id="forgotLink" class="auth-link" type="button">Forgot password?</button></form><form id="registerForm" class="auth-form" hidden><div><label>Name</label><input id="registerName" autocomplete="name" required minlength="2"></div><div><label>Email</label><input id="registerEmail" type="email" autocomplete="email" required></div><div><label>Password</label><input id="registerPassword" type="password" autocomplete="new-password" minlength="8" required></div><div><label>Confirm password</label><input id="registerConfirm" type="password" autocomplete="new-password" minlength="8" required></div><button class="primary">Create account</button></form><form id="forgotForm" class="auth-form" hidden><div><label>Registered email</label><input id="forgotEmail" type="email" required></div><button class="primary">Send reset link</button><button class="auth-link" type="button" onclick="authMode('login')">Back to sign in</button></form><form id="resetForm" class="auth-form" hidden><div><label>New password</label><input id="resetPassword" type="password" minlength="8" required></div><div><label>Confirm password</label><input id="resetConfirm" type="password" minlength="8" required></div><button class="primary">Change password</button></form><p id="authError" class="auth-error"></p></div></div>
-<header><div class="wrap"><h1>🍕 Pizza Shift & Money Tracker</h1><p>Track store work, delivery shifts, payments, and every expense in one place.</p><div id="syncStatus" class="sync-status"><span class="sync-dot"></span><span id="syncText">Checking your account…</span></div></div></header>
+<header><div class="wrap"><h1>PART TIME WORK EARNINGS</h1><p>Track store work, delivery shifts, payments, and every expense in one place.</p><div id="syncStatus" class="sync-status"><span class="sync-dot"></span><span id="syncText">Checking your account…</span></div></div></header>
 <nav><div class="nav">
 <button data-page="dashboard" class="active">Dashboard</button><button data-page="shifts">Shifts</button><button data-page="expenses">Expenses</button><button data-page="payments">Payments</button><button data-page="settings">Settings</button><button data-page="admin" id="adminNav" hidden>Admin</button>
 </div></nav>
@@ -55,7 +55,6 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 <div class="panel"><h2>Recent activity</h2><div id="recentActivity"></div></div>
 </div>
 <div class="panel"><h2>Earnings by store</h2><div id="storeEarnings"></div></div>
-<div class="panel"><h2>Le Saint weekly payment</h2><p class="hint">Each week runs from Monday through Sunday.</p><div id="leSaintWeekly"></div></div>
 </section>
 
 <section id="shifts" class="page">
@@ -159,7 +158,7 @@ function render(){
  const payments=data.payments.reduce((s,x)=>s+x.amount,0);
  $('dashStore').textContent=money(personal);$('dashDelivery').textContent=money(del);$('dashExpenses').textContent=money(expenses);
  $('dashNet').textContent=money(personal+payments-expenses);$('dashDue').textContent=money(Math.max(personal-payments,0)); $('currency').value=data.settings.currency; $('defaultRate').value=data.settings.defaultRate;$('deliveryRate').value=data.settings.deliveryRate;
- renderMonthly();renderStoreEarnings();renderLeSaintWeekly();renderShifts();renderExpenses();renderPayments();renderRecent();
+ renderMonthly();renderStoreEarnings();renderShifts();renderExpenses();renderPayments();renderRecent();
 }
 function renderMonthly(){
  const m=$('dashMonth').value||month, sh=data.shifts.filter(x=>x.date.startsWith(m)), ex=data.expenses.filter(x=>x.date.startsWith(m)), pa=data.payments.filter(x=>x.date.startsWith(m));
@@ -171,12 +170,6 @@ function renderStoreEarnings(){
  data.shifts.filter(x=>x.date.startsWith(m)).forEach(x=>{let store=x.store||'Personal';totals[store]=(totals[store]||0)+shiftEarnings(x)});
  let rows=Object.entries(totals).sort((a,b)=>b[1]-a[1]);
  $('storeEarnings').innerHTML=rows.length?`<div class="store-cards">${rows.map(([store,total])=>`<div class="store-card"><span>${store}</span><b>${money(total)}</b></div>`).join('')}</div>`:'<div class="empty">No store earnings for this month.</div>';
-}
-function renderLeSaintWeekly(){
- const isLeSaint=x=>['lesaint','le saint'].includes(String(x.store||'').trim().toLowerCase()),weeks={};
- data.shifts.filter(isLeSaint).forEach(x=>{let d=new Date(x.date+'T12:00:00Z'),day=d.getUTCDay()||7,monday=new Date(d);monday.setUTCDate(d.getUTCDate()-day+1);let sunday=new Date(monday);sunday.setUTCDate(monday.getUTCDate()+6);let key=monday.toISOString().slice(0,10);weeks[key]??={monday:key,sunday:sunday.toISOString().slice(0,10),hours:0,deliveries:0,earnings:0};weeks[key].hours+=+x.hours||0;weeks[key].deliveries+=+x.deliveryCount||0;weeks[key].earnings+=shiftEarnings(x)});
- let rows=Object.values(weeks).sort((a,b)=>b.monday.localeCompare(a.monday));
- $('leSaintWeekly').innerHTML=rows.length?`<table><tr><th>Week (Mon–Sun)</th><th>Hours</th><th>Deliveries</th><th>Weekly payment</th></tr>${rows.map(w=>`<tr><td>${w.monday} – ${w.sunday}</td><td>${w.hours.toFixed(2)}</td><td>${w.deliveries}</td><td class="positive"><b>${money(w.earnings)}</b></td></tr>`).join('')}</table>`:'<div class="empty">No Le Saint shifts yet.</div>';
 }
 function renderShifts(){
  let m=$('shiftMonth').value||'', f=$('shiftFilter').value, sf=$('shiftStoreFilter').value;

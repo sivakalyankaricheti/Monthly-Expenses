@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Pizza Shift & Money Tracker',
+  title: 'PART TIME WORK EARNINGS',
   description: 'Track store shifts, deliveries, earnings, payments, and expenses from any device.',
 };
 
