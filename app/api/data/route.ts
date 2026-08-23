@@ -42,9 +42,14 @@ export async function POST(request: Request) {
     const serialized = JSON.stringify(body);
     if (serialized.length > 2_000_000) return NextResponse.json({ error: 'Tracker data is too large.' }, { status: 413 });
     const updatedAt = new Date().toISOString();
-    await env.DB.prepare(`INSERT INTO tracker_state (user_id, data, updated_at) VALUES (?, ?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`)
-      .bind(user.userId, serialized, updatedAt).run();
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO tracker_state_history (user_id, data, created_at)
+        SELECT user_id, data, ? FROM tracker_state WHERE user_id = ? AND data <> ?`).bind(updatedAt, user.userId, serialized),
+      env.DB.prepare(`INSERT INTO tracker_state (user_id, data, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`).bind(user.userId, serialized, updatedAt),
+      env.DB.prepare(`DELETE FROM tracker_state_history WHERE user_id = ? AND id IN
+        (SELECT id FROM tracker_state_history WHERE user_id = ? ORDER BY created_at DESC LIMIT -1 OFFSET 30)`).bind(user.userId, user.userId),
+    ]);
     return NextResponse.json({ ok: true, updatedAt });
   } catch (error) { return handleError(error); }
 }

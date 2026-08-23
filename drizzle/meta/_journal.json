@@ -50,6 +50,13 @@
       "when": 1787503500000,
       "tag": "0006_move_admin_data_to_user",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787513491580,
+      "tag": "0007_cool_roughhouse",
+      "breakpoints": true
     }
   ]
 }

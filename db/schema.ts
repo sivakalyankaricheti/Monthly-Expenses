@@ -1,10 +1,17 @@
-import { index, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const trackerState = sqliteTable('tracker_state', {
   userId: text('user_id').primaryKey(),
   data: text('data').notNull(),
   updatedAt: text('updated_at').notNull(),
 });
+
+export const trackerStateHistory = sqliteTable('tracker_state_history', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: text('user_id').notNull(),
+  data: text('data').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [index('tracker_state_history_user_created_idx').on(table.userId, table.createdAt)]);
 
 export const users = sqliteTable('users', {
   userId: text('user_id').primaryKey(),
