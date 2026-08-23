@@ -8,7 +8,7 @@
 :root{--bg:#f5f6f8;--card:#fff;--text:#1f2937;--muted:#6b7280;--accent:#e31837;--green:#16803c;--border:#e5e7eb;--blue:#2563eb}
 *{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
 header{background:linear-gradient(135deg,#d91535,#f04444);color:#fff;padding:28px 20px}
-header .wrap{max-width:1150px;margin:auto}h1{margin:0 0 6px;font-size:30px}header p{margin:0;opacity:.9}
+header .wrap{max-width:1150px;margin:auto}h1{margin:0 0 6px;font-size:30px}header p{margin:0;opacity:.9}.sync-status{display:inline-flex;align-items:center;gap:6px;margin-top:12px;padding:6px 10px;border-radius:999px;background:#ffffff20;font-size:12px;font-weight:700}.sync-dot{width:8px;height:8px;border-radius:50%;background:#fde68a}.sync-status.online .sync-dot{background:#86efac}.sync-status.error .sync-dot{background:#fecaca}
 nav{background:#fff;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:5}
 .nav{max-width:1150px;margin:auto;display:flex;gap:6px;overflow:auto;padding:8px 12px}
 .nav button{border:0;background:transparent;padding:10px 14px;border-radius:9px;cursor:pointer;font-weight:600;white-space:nowrap}
@@ -30,11 +30,12 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 .empty{color:var(--muted);padding:20px 0;text-align:center}.hint{color:var(--muted);font-size:13px;margin-top:8px}
 .filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}.filters>*{max-width:220px}
 .summaryline{display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:10px 0}.summaryline:last-child{border:0}
-@media(max-width:800px){.cards{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.formgrid{grid-template-columns:1fr}table{display:block;overflow:auto;white-space:nowrap}}
+@media(max-width:800px){header{padding:20px 16px}h1{font-size:24px}.cards{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.formgrid{grid-template-columns:1fr}table{display:block;overflow:auto;white-space:nowrap}.panel{padding:15px}main{margin:16px auto;padding:0 12px}input,select,textarea{font-size:16px;min-height:44px}.nav{padding:7px 8px}.nav button{padding:10px 12px}}
+@media(max-width:480px){body{padding-bottom:68px}header p{font-size:14px}.cards{grid-template-columns:1fr 1fr;gap:9px}.card{padding:13px}.money{font-size:20px}.panel{border-radius:12px}.actions>*{flex:1;min-height:44px}nav{position:fixed;top:auto;bottom:0;left:0;right:0;border-top:1px solid var(--border);border-bottom:0}.nav{justify-content:flex-start}.nav button{font-size:12px;flex:1;padding:10px 8px}.filters>*{max-width:none;flex:1 1 140px}}
 </style>
 </head>
 <body>
-<header><div class="wrap"><h1>🍕 Pizza Shift & Money Tracker</h1><p>Track store work, delivery shifts, payments, and every expense in one place.</p></div></header>
+<header><div class="wrap"><h1>🍕 Pizza Shift & Money Tracker</h1><p>Track store work, delivery shifts, payments, and every expense in one place.</p><div id="syncStatus" class="sync-status"><span class="sync-dot"></span><span id="syncText">Loading database…</span></div></div></header>
 <nav><div class="nav">
 <button data-page="dashboard" class="active">Dashboard</button><button data-page="shifts">Shifts</button><button data-page="expenses">Expenses</button><button data-page="payments">Payments</button><button data-page="settings">Settings</button>
 </div></nav>
@@ -51,6 +52,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 <div id="monthlySummary"></div></div>
 <div class="panel"><h2>Recent activity</h2><div id="recentActivity"></div></div>
 </div>
+<div class="panel"><h2>Earnings by store</h2><div id="storeEarnings"></div></div>
 </section>
 
 <section id="shifts" class="page">
@@ -63,10 +65,10 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 <div><label>Start time</label><input required type="time" id="start"></div>
 <div><label>End time</label><input required type="time" id="end"></div>
 <div><label>Hourly rate (€)</label><input required type="number" min="0" step=".01" id="rate"></div>
-<div><label>Extra delivery earnings (€)</label><input type="number" min="0" step=".01" id="deliveryExtra" value="0"></div>
+<div><label>Delivery count</label><input type="number" min="0" step="1" id="deliveryCount" value="0"></div>
 <div class="full"><label>Notes</label><textarea id="shiftNotes" placeholder="e.g. 8 deliveries, tips, changed timing..."></textarea></div>
 </div><div class="actions"><button class="primary" type="submit">Save shift</button><button class="secondary" type="button" id="shiftReset">Clear</button></div></form>
-<p class="hint">Each shift is your personal earning. Add the store/employer name so you can work for multiple stores and filter earnings by store later.</p></div>
+<p class="hint">Shift earnings are hours × hourly rate, plus €2 for every delivery. Add the store/employer name to see separate earnings for each store.</p></div>
 <div class="panel"><h2>Your shifts</h2><div class="filters"><input type="month" id="shiftMonth"><select id="shiftFilter"><option value="">All types</option><option>Store</option><option>Delivery</option></select><select id="shiftStoreFilter"><option value="">All stores</option></select></div><div id="shiftTable"></div></div>
 </div>
 </section>
@@ -99,41 +101,67 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 
 <section id="settings" class="page">
 <div class="panel"><h2>Settings & data</h2>
-<div class="formgrid"><div><label>Currency symbol</label><input id="currency" value="€"></div><div><label>Default hourly rate (€)</label><input id="defaultRate" type="number" min="0" step=".01"></div></div>
-<div class="actions"><button class="primary" id="saveSettings">Save settings</button><button class="secondary" id="exportCsv">Export CSV</button><button class="danger" id="clearAll">Delete all data</button></div>
-<p class="hint">Data is saved in this browser using local storage. Export your CSV regularly as a backup.</p>
+<div class="formgrid"><div><label>Currency symbol</label><input id="currency" value="€"></div><div><label>Default hourly rate (€)</label><input id="defaultRate" type="number" min="0" step=".01"></div><div><label>Earnings per delivery (€)</label><input id="deliveryRate" type="number" min="0" step=".01"></div></div>
+<div class="actions"><button class="primary" id="saveSettings">Save settings</button><button class="secondary" id="exportCsv">Export CSV</button><button class="secondary" id="exportBackup">Export database backup</button><button class="secondary" id="importBackup">Import database backup</button><input id="backupFile" type="file" accept="application/json,.json" hidden><button class="danger" id="clearAll">Delete all data</button></div>
+<p class="hint">The live app stores data in its shared cloud database. The downloaded file uses IndexedDB on this device. Use a database backup to move existing downloaded-file records into the live app.</p>
 </div>
 </section>
 </main>
 <script>
-const KEY='pizza_tracker_v1';
-let data=JSON.parse(localStorage.getItem(KEY)||'{"shifts":[],"expenses":[],"payments":[],"settings":{"currency":"€","defaultRate":12}}');
+const KEY='pizza_tracker_v1', DB_NAME='pizza_money_tracker', DB_STORE='tracker';
+const defaults={shifts:[],expenses:[],payments:[],settings:{currency:'€',defaultRate:10,deliveryRate:2}};
+let data=structuredClone(defaults), db;
 const $=id=>document.getElementById(id);
 const money=n=>(data.settings.currency||'€')+Number(n||0).toFixed(2);
 const today=new Date().toISOString().slice(0,10), month=today.slice(0,7);
-function save(){localStorage.setItem(KEY,JSON.stringify(data));render();}
+function normalize(raw){
+ const d=raw&&typeof raw==='object'?raw:structuredClone(defaults);
+ d.shifts=Array.isArray(d.shifts)?d.shifts:[];d.expenses=Array.isArray(d.expenses)?d.expenses:[];d.payments=Array.isArray(d.payments)?d.payments:[];
+ d.settings={...defaults.settings,...(d.settings||{})};
+ // Migrate the old free-form delivery amount without losing its value.
+ d.shifts=d.shifts.map(x=>({...x,deliveryCount:Number.isFinite(+x.deliveryCount)?+x.deliveryCount:(+x.extra||0)/(+d.settings.deliveryRate||2)}));
+ return d;
+}
+function openDatabase(){return new Promise((resolve,reject)=>{let request=indexedDB.open(DB_NAME,1);request.onupgradeneeded=()=>request.result.createObjectStore(DB_STORE);request.onsuccess=()=>{db=request.result;resolve(db)};request.onerror=()=>reject(request.error)})}
+function dbRead(){return new Promise((resolve,reject)=>{let request=db.transaction(DB_STORE).objectStore(DB_STORE).get('data');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)})}
+function dbWrite(){if(!db)return;let tx=db.transaction(DB_STORE,'readwrite');tx.objectStore(DB_STORE).put(data,'data')}
+function setSync(state,text){$('syncStatus').className='sync-status '+state;$('syncText').textContent=text}
+async function cloudWrite(){
+ if(location.protocol==='file:')return;
+ try{let response=await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});if(!response.ok)throw new Error('Save failed');setSync('online','Saved to cloud database')}
+ catch(error){console.warn(error);setSync('error','Saved on this device; cloud unavailable')}
+}
+function save(){dbWrite();localStorage.setItem(KEY,JSON.stringify(data));render();cloudWrite()}
 function hours(a,b){let [ah,am]=a.split(':').map(Number),[bh,bm]=b.split(':').map(Number);let x=bh+bm/60-(ah+am/60);return x<0?x+24:x}
+const deliveryBonus=x=>(+x.deliveryCount||0)*(+data.settings.deliveryRate||0);
+const shiftEarnings=x=>(+x.hours||0)*(+x.rate||0)+deliveryBonus(x);
 function initDates(){['shiftDate','expenseDate','paymentDate'].forEach(x=>$(x).value=today);['dashMonth','shiftMonth','expenseMonth','paymentMonth'].forEach(x=>$(x).value=month);$('rate').value=data.settings.defaultRate}
 function render(){
- const personal=data.shifts.reduce((s,x)=>s+x.hours*x.rate+x.extra,0);
- const del=data.shifts.filter(x=>x.type==='Delivery').reduce((s,x)=>s+x.hours*x.rate+x.extra,0);
+ const personal=data.shifts.reduce((s,x)=>s+shiftEarnings(x),0);
+ const del=data.shifts.reduce((s,x)=>s+deliveryBonus(x),0);
  const expenses=data.expenses.reduce((s,x)=>s+x.amount,0);
  const payments=data.payments.reduce((s,x)=>s+x.amount,0);
  $('dashStore').textContent=money(personal);$('dashDelivery').textContent=money(del);$('dashExpenses').textContent=money(expenses);
- $('dashNet').textContent=money(payments-expenses); $('currency').value=data.settings.currency; $('defaultRate').value=data.settings.defaultRate;
- renderMonthly();renderShifts();renderExpenses();renderPayments();renderRecent();
+ $('dashNet').textContent=money(personal-expenses); $('currency').value=data.settings.currency; $('defaultRate').value=data.settings.defaultRate;$('deliveryRate').value=data.settings.deliveryRate;
+ renderMonthly();renderStoreEarnings();renderShifts();renderExpenses();renderPayments();renderRecent();
 }
 function renderMonthly(){
  const m=$('dashMonth').value||month, sh=data.shifts.filter(x=>x.date.startsWith(m)), ex=data.expenses.filter(x=>x.date.startsWith(m)), pa=data.payments.filter(x=>x.date.startsWith(m));
- let personal=sh.reduce((s,x)=>s+x.hours*x.rate+x.extra,0), del=sh.filter(x=>x.type==='Delivery').reduce((s,x)=>s+x.hours*x.rate+x.extra,0), e=ex.reduce((s,x)=>s+x.amount,0), p=pa.reduce((s,x)=>s+x.amount,0);
- $('monthlySummary').innerHTML=`<div class="summaryline"><span>Personal earnings</span><b>${money(personal)}</b></div><div class="summaryline"><span>Delivery shift value</span><b>${money(del)}</b></div><div class="summaryline"><span>Payments received</span><b>${money(p)}</b></div><div class="summaryline"><span>Expenses</span><b class="negative">-${money(e)}</b></div><div class="summaryline"><span>Cash result</span><b class="positive">${money(p-e)}</b></div>`;
+ let personal=sh.reduce((s,x)=>s+shiftEarnings(x),0), del=sh.reduce((s,x)=>s+deliveryBonus(x),0), e=ex.reduce((s,x)=>s+x.amount,0), p=pa.reduce((s,x)=>s+x.amount,0);
+ $('monthlySummary').innerHTML=`<div class="summaryline"><span>Total shift earnings</span><b>${money(personal)}</b></div><div class="summaryline"><span>Included delivery bonuses</span><b>${money(del)}</b></div><div class="summaryline"><span>Payments received</span><b>${money(p)}</b></div><div class="summaryline"><span>Expenses</span><b class="negative">-${money(e)}</b></div><div class="summaryline"><span>Net earnings</span><b class="positive">${money(personal-e)}</b></div>`;
+}
+function renderStoreEarnings(){
+ const m=$('dashMonth').value||month, totals={};
+ data.shifts.filter(x=>x.date.startsWith(m)).forEach(x=>{let store=x.store||'Personal';totals[store]=(totals[store]||0)+shiftEarnings(x)});
+ let rows=Object.entries(totals).sort((a,b)=>b[1]-a[1]);
+ $('storeEarnings').innerHTML=rows.length?`<table><tr><th>Store / employer</th><th>Earnings</th></tr>${rows.map(([store,total])=>`<tr><td>${store}</td><td class="positive">${money(total)}</td></tr>`).join('')}</table>`:'<div class="empty">No store earnings for this month.</div>';
 }
 function renderShifts(){
  let m=$('shiftMonth').value||'', f=$('shiftFilter').value, sf=$('shiftStoreFilter').value;
  let stores=[...new Set(data.shifts.map(x=>x.store||'Personal'))].sort();
  $('shiftStoreFilter').innerHTML='<option value="">All stores</option>'+stores.map(s=>`<option ${s===sf?'selected':''}>${s}</option>`).join('');
  let arr=data.shifts.filter(x=>(!m||x.date.startsWith(m))&&(!f||x.type===f)&&(!sf||(x.store||'Personal')===sf)).sort((a,b)=>b.date.localeCompare(a.date));
- $('shiftTable').innerHTML=arr.length?`<table><tr><th>Date</th><th>Store / employer</th><th>Type</th><th>Time</th><th>Hours</th><th>Personal earnings</th><th></th></tr>${arr.map(x=>`<tr><td>${x.date}</td><td>${x.store||'Personal'}</td><td>${x.type}</td><td>${x.start}–${x.end}</td><td>${x.hours.toFixed(2)}</td><td>${money(x.hours*x.rate+x.extra)}</td><td><button class="secondary" onclick="editShift('${x.id}')">Edit</button> <button class="danger" onclick="delItem('shifts','${x.id}')">Delete</button></td></tr>`).join('')}</table>`:'<div class="empty">No shifts yet.</div>';
+ $('shiftTable').innerHTML=arr.length?`<table><tr><th>Date</th><th>Store / employer</th><th>Type</th><th>Time</th><th>Hours</th><th>Deliveries</th><th>Earnings</th><th></th></tr>${arr.map(x=>`<tr><td>${x.date}</td><td>${x.store||'Personal'}</td><td>${x.type}</td><td>${x.start}–${x.end}</td><td>${x.hours.toFixed(2)}</td><td>${x.deliveryCount||0} (${money(deliveryBonus(x))})</td><td>${money(shiftEarnings(x))}</td><td><button class="secondary" onclick="editShift('${x.id}')">Edit</button> <button class="danger" onclick="delItem('shifts','${x.id}')">Delete</button></td></tr>`).join('')}</table>`:'<div class="empty">No shifts yet.</div>';
 }
 function renderExpenses(){
  let m=$('expenseMonth').value||'', arr=data.expenses.filter(x=>!m||x.date.startsWith(m)).sort((a,b)=>b.date.localeCompare(a.date));
@@ -144,14 +172,14 @@ function renderPayments(){
  $('paymentTable').innerHTML=arr.length?`<table><tr><th>Date</th><th>Type</th><th>Reference</th><th>Amount</th><th></th></tr>${arr.map(x=>`<tr><td>${x.date}</td><td>${x.type}</td><td>${x.reference||''}</td><td class="positive">${money(x.amount)}</td><td><button class="secondary" onclick="editPayment('${x.id}')">Edit</button> <button class="danger" onclick="delItem('payments','${x.id}')">Delete</button></td></tr>`).join('')}</table>`:'<div class="empty">No payments yet.</div>';
 }
 function renderRecent(){
- let a=[...data.shifts.map(x=>({date:x.date,text:`${x.type} shift ${x.start}–${x.end}`,amount:x.hours*x.rate+x.extra})),...data.expenses.map(x=>({date:x.date,text:`Expense: ${x.category}`,amount:-x.amount})),...data.payments.map(x=>({date:x.date,text:`Payment: ${x.type}`,amount:x.amount}))].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
+ let a=[...data.shifts.map(x=>({date:x.date,text:`${x.store||'Personal'}: ${x.type} shift ${x.start}–${x.end}`,amount:shiftEarnings(x)})),...data.expenses.map(x=>({date:x.date,text:`Expense: ${x.category}`,amount:-x.amount})),...data.payments.map(x=>({date:x.date,text:`Payment: ${x.type}`,amount:x.amount}))].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
  $('recentActivity').innerHTML=a.length?a.map(x=>`<div class="summaryline"><span>${x.date} — ${x.text}</span><b class="${x.amount<0?'negative':'positive'}">${x.amount<0?'-':''}${money(Math.abs(x.amount))}</b></div>`).join(''):'<div class="empty">No activity yet.</div>';
 }
 function id(){return Date.now().toString(36)+Math.random().toString(36).slice(2)}
-$('shiftForm').onsubmit=e=>{e.preventDefault();let hid=$('shiftId').value,x={id:hid||id(),date:$('shiftDate').value,type:$('shiftType').value,store:$('shiftStore').value.trim()||'Personal',start:$('start').value,end:$('end').value,rate:+$('rate').value,extra:+$('deliveryExtra').value||0,notes:$('shiftNotes').value};x.hours=hours(x.start,x.end);if(hid)data.shifts=data.shifts.map(y=>y.id===hid?x:y);else data.shifts.push(x);e.target.reset();$('shiftId').value='';$('rate').value=data.settings.defaultRate;save()};
+$('shiftForm').onsubmit=e=>{e.preventDefault();let hid=$('shiftId').value,x={id:hid||id(),date:$('shiftDate').value,type:$('shiftType').value,store:$('shiftStore').value.trim()||'Personal',start:$('start').value,end:$('end').value,rate:+$('rate').value,deliveryCount:+$('deliveryCount').value||0,notes:$('shiftNotes').value};x.hours=hours(x.start,x.end);if(hid)data.shifts=data.shifts.map(y=>y.id===hid?x:y);else data.shifts.push(x);e.target.reset();$('shiftId').value='';$('rate').value=data.settings.defaultRate;save()};
 $('expenseForm').onsubmit=e=>{e.preventDefault();let hid=$('expenseId').value,x={id:hid||id(),date:$('expenseDate').value,category:$('expenseCategory').value,amount:+$('expenseAmount').value,method:$('expenseMethod').value,description:$('expenseDescription').value};if(hid)data.expenses=data.expenses.map(y=>y.id===hid?x:y);else data.expenses.push(x);e.target.reset();$('expenseId').value='';save()};
 $('paymentForm').onsubmit=e=>{e.preventDefault();let hid=$('paymentId').value,x={id:hid||id(),date:$('paymentDate').value,type:$('paymentType').value,amount:+$('paymentAmount').value,reference:$('paymentReference').value};if(hid)data.payments=data.payments.map(y=>y.id===hid?x:y);else data.payments.push(x);e.target.reset();$('paymentId').value='';save()};
-function editShift(i){let x=data.shifts.find(y=>y.id===i);$('shiftId').value=x.id;['shiftDate','shiftType','shiftStore','start','end','rate','deliveryExtra','shiftNotes'].forEach((k,j)=>$(k).value=[x.date,x.type,x.store||'Personal',x.start,x.end,x.rate,x.extra,x.notes][j]);document.querySelector('[data-page="shifts"]').click()}
+function editShift(i){let x=data.shifts.find(y=>y.id===i);$('shiftId').value=x.id;['shiftDate','shiftType','shiftStore','start','end','rate','deliveryCount','shiftNotes'].forEach((k,j)=>$(k).value=[x.date,x.type,x.store||'Personal',x.start,x.end,x.rate,x.deliveryCount||0,x.notes][j]);document.querySelector('[data-page="shifts"]').click()}
 function editExpense(i){let x=data.expenses.find(y=>y.id===i);$('expenseId').value=x.id;[['expenseDate',x.date],['expenseCategory',x.category],['expenseAmount',x.amount],['expenseMethod',x.method],['expenseDescription',x.description]].forEach(([a,b])=>$(a).value=b);document.querySelector('[data-page="expenses"]').click()}
 function editPayment(i){let x=data.payments.find(y=>y.id===i);$('paymentId').value=x.id;[['paymentDate',x.date],['paymentType',x.type],['paymentAmount',x.amount],['paymentReference',x.reference]].forEach(([a,b])=>$(a).value=b);document.querySelector('[data-page="payments"]').click()}
 function delItem(type,i){if(confirm('Delete this entry?')){data[type]=data[type].filter(x=>x.id!==i);save()}}
@@ -160,10 +188,30 @@ document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>{document.quer
 $('shiftReset').onclick=()=>{$('shiftForm').reset();$('shiftId').value='';$('rate').value=data.settings.defaultRate};
 $('expenseReset').onclick=()=>{$('expenseForm').reset();$('expenseId').value=''};
 $('paymentReset').onclick=()=>{$('paymentForm').reset();$('paymentId').value=''};
-$('saveSettings').onclick=()=>{data.settings.currency=$('currency').value||'€';data.settings.defaultRate=+$('defaultRate').value||0;save();alert('Settings saved.')};
+$('saveSettings').onclick=()=>{data.settings.currency=$('currency').value||'€';data.settings.defaultRate=+$('defaultRate').value||0;data.settings.deliveryRate=+$('deliveryRate').value||0;save();alert('Settings saved.')};
 $('clearAll').onclick=()=>{if(confirm('Delete ALL shifts, payments and expenses? This cannot be undone.')){data={shifts:[],expenses:[],payments:[],settings:data.settings};save()}};
-$('exportCsv').onclick=()=>{let rows=[['Date','Category','Store / employer','Type','Hours','Rate','Extra','Amount','Notes']];data.shifts.forEach(x=>rows.push([x.date,'Shift',x.store||'Personal',x.type,x.hours,x.rate,x.extra,x.hours*x.rate+x.extra,x.notes]));data.expenses.forEach(x=>rows.push([x.date,'Expense',x.category,'','','',-x.amount,x.description]));data.payments.forEach(x=>rows.push([x.date,'Payment',x.type,'','','',x.amount,x.reference]));let csv=rows.map(r=>r.map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(',')).join('\\n');let blob=new Blob([csv],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='pizza-money-tracker.csv';a.click();URL.revokeObjectURL(a.href)};
-initDates();render();
+$('exportBackup').onclick=()=>{let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='pizza-money-database-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
+$('importBackup').onclick=()=>$('backupFile').click();
+$('backupFile').onchange=async e=>{let file=e.target.files[0];if(!file)return;try{let imported=normalize(JSON.parse(await file.text()));data=imported;save();alert('Database backup imported successfully.')}catch(error){alert('This backup file is not valid.')}e.target.value=''};
+$('exportCsv').onclick=()=>{
+ let rows=[['Date','Record type','Store / employer','Work / payment / expense type','Start time','End time','Hours','Hourly rate','Delivery count','Delivery earnings','Total amount','Payment method','Description / notes']];
+ data.shifts.forEach(x=>rows.push([x.date,'Shift',x.store||'Personal',x.type,x.start,x.end,x.hours,x.rate,x.deliveryCount||0,deliveryBonus(x),shiftEarnings(x),'',x.notes||'']));
+ data.expenses.forEach(x=>rows.push([x.date,'Expense','',x.category,'','','','','','',-x.amount,x.method||'',x.description||'']));
+ data.payments.forEach(x=>rows.push([x.date,'Payment','',x.type,'','','','','','',x.amount,'',x.reference||'']));
+ rows.splice(1,rows.length-1,...rows.slice(1).sort((a,b)=>a[0].localeCompare(b[0])));
+ let csv='\uFEFF'+rows.map(r=>r.map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(',')).join('\r\n');
+ let blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='pizza-money-tracker.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)
+};
+async function startApp(){
+ let local;
+ try{await openDatabase();let stored=await dbRead(),legacy=JSON.parse(localStorage.getItem(KEY)||'null');local=normalize(stored||legacy||defaults);dbWrite()}
+ catch(error){console.warn('IndexedDB unavailable; using local storage fallback.',error);local=normalize(JSON.parse(localStorage.getItem(KEY)||'null')||defaults)}
+ data=local;
+ if(location.protocol!=='file:')try{let response=await fetch('/api/data');if(!response.ok)throw new Error('Load failed');let result=await response.json();if(result.data)data=normalize(result.data);else if(data.shifts.length||data.expenses.length||data.payments.length)await cloudWrite();setSync('online','Connected to cloud database')}catch(error){console.warn(error);setSync('error','Using this device; cloud unavailable')}
+ else setSync('','Saved on this device');
+ initDates();render();
+}
+startApp();
 </script>
 </body>
 </html>
