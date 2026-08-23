@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: part-time-earnings
+    runtime: node
+    plan: free
+    buildCommand: corepack enable && pnpm install --frozen-lockfile
+    startCommand: pnpm start
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: part-time-earnings-db
+          property: connectionString
+      - key: NODE_VERSION
+        value: 22.13.0
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+
+databases:
+  - name: part-time-earnings-db
+    plan: free
+    databaseName: part_time_earnings
+    user: part_time_earnings

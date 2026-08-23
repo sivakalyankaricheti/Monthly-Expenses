@@ -1,0 +1,64 @@
+import http from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { randomBytes, randomUUID, createHash, pbkdf2 as pbkdf2Callback, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
+import pg from 'pg';
+
+const { Pool } = pg;
+const pbkdf2 = promisify(pbkdf2Callback);
+const port = Number(process.env.PORT || 3000);
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false } });
+const trackerHtml = await readFile(new URL('./public/tracker.html', import.meta.url));
+const SESSION_COOKIE = 'pizza_session';
+const seedData = {shifts:[
+  {id:'csv-20260807-ajay',date:'2026-08-07',type:'Store',store:'Ajay',start:'',end:'',hours:3,rate:10,deliveryCount:0,notes:''},
+  {id:'csv-20260808-ajay',date:'2026-08-08',type:'Store',store:'Ajay',start:'',end:'',hours:3.833333333333332,rate:10,deliveryCount:0,notes:''},
+  {id:'csv-20260815-ajay',date:'2026-08-15',type:'Store',store:'Ajay',start:'',end:'',hours:4,rate:10,deliveryCount:0,notes:''},
+  {id:'csv-20260818-lesaint',date:'2026-08-18',type:'Store',store:'Le Saint',start:'',end:'',hours:2.5,rate:10,deliveryCount:1,notes:'one delivery'},
+  {id:'csv-20260819-lesaint',date:'2026-08-19',type:'Store',store:'Le Saint',start:'',end:'',hours:2.5,rate:10,deliveryCount:4,notes:'4 delivery'},
+  {id:'csv-20260821-lesaint',date:'2026-08-21',type:'Store',store:'Le Saint',start:'',end:'',hours:2.5,rate:10,deliveryCount:0,notes:''},
+  {id:'csv-20260822-lesaint',date:'2026-08-22',type:'Store',store:'Le Saint',start:'',end:'',hours:3.416666666666666,rate:10,deliveryCount:2,notes:'2 delivery'}
+],expenses:[],payments:[
+  {id:'csv-payment-20260815',date:'2026-08-15',type:'Salary',amount:125,reference:'july last week & aug 1st week'},
+  {id:'csv-payment-20260819',date:'2026-08-19',type:'Salary',amount:194.1,reference:'aug 2nd week'}
+],settings:{currency:'€',defaultRate:10,deliveryRate:2}};
+
+const hex = value => createHash('sha256').update(value).digest('hex');
+const randomHex = (length=32) => randomBytes(length).toString('hex');
+const hashPassword = async (password,salt) => (await pbkdf2(password,Buffer.from(salt,'hex'),100000,32,'sha256')).toString('hex');
+const cookieToken = req => (req.headers.cookie || '').split(';').map(x=>x.trim()).find(x=>x.startsWith(SESSION_COOKIE+'='))?.slice(SESSION_COOKIE.length+1) || '';
+const send = (res,status,body,headers={}) => { res.writeHead(status,{'Content-Type':'application/json; charset=utf-8',...headers}); res.end(JSON.stringify(body)); };
+const body = async req => { const chunks=[]; for await (const chunk of req) chunks.push(chunk); return JSON.parse(Buffer.concat(chunks).toString() || '{}'); };
+const setCookie = (token,maxAge=2592000) => `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+
+async function initDb(){
+  await pool.query(`CREATE TABLE IF NOT EXISTS users(user_id text PRIMARY KEY,email text UNIQUE NOT NULL,display_name text,role text NOT NULL DEFAULT 'user',status text NOT NULL DEFAULT 'active',created_at timestamptz NOT NULL,last_seen_at timestamptz NOT NULL,password_hash text,password_salt text);
+  CREATE TABLE IF NOT EXISTS tracker_state(user_id text PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,data jsonb NOT NULL,updated_at timestamptz NOT NULL);
+  CREATE TABLE IF NOT EXISTS sessions(token_hash text PRIMARY KEY,user_id text NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,created_at timestamptz NOT NULL,expires_at timestamptz NOT NULL);
+  CREATE TABLE IF NOT EXISTS password_reset_tokens(token_hash text PRIMARY KEY,user_id text NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,expires_at timestamptz NOT NULL,used_at timestamptz);`);
+  await pool.query(`INSERT INTO users(user_id,email,display_name,role,status,created_at,last_seen_at,password_hash,password_salt) VALUES('platform-admin','admin@gmail.com','Administrator','admin','active',now(),now(),'fcd3757bb17aaf30a3570ab51c5144ab303d8f54d1c638e7d0647df7a3d86aab','75ab0b199fe826154a66984e93ff59e3') ON CONFLICT(email) DO UPDATE SET role='admin',status='active'`);
+  const owner='mzll6UGvqFvra8c1By5f2Vz9yBs4F1QHOLSFeQfyvy9LLEhmlm0f9a';
+  await pool.query(`INSERT INTO users(user_id,email,display_name,role,status,created_at,last_seen_at) VALUES($1,'kalyankaricheti@gmail.com','Kalyan','user','active',now(),now()) ON CONFLICT(email) DO NOTHING`,[owner]);
+  await pool.query(`INSERT INTO tracker_state(user_id,data,updated_at) VALUES($1,$2,now()) ON CONFLICT(user_id) DO NOTHING`,[owner,seedData]);
+}
+
+async function createSession(userId){ const token=randomHex(); await pool.query('INSERT INTO sessions VALUES($1,$2,now(),now()+interval \'30 days\')',[hex(token),userId]); return token; }
+async function currentUser(req){ const token=cookieToken(req); if(!token) return null; const {rows}=await pool.query(`SELECT u.* FROM sessions s JOIN users u ON u.user_id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()`,[hex(token)]); if(!rows[0]||rows[0].status==='disabled') return null; await pool.query('UPDATE users SET last_seen_at=now() WHERE user_id=$1',[rows[0].user_id]); return rows[0]; }
+
+async function api(req,res,path){
+  if(path==='/api/account/register'&&req.method==='POST'){ const b=await body(req),email=(b.email||'').trim().toLowerCase(),name=(b.displayName||'').trim(),password=b.password||''; if(!/^\S+@\S+\.\S+$/.test(email)||name.length<2||password.length<8) return send(res,400,{error:'Enter a valid email, name, and password of at least 8 characters.'}); const found=(await pool.query('SELECT * FROM users WHERE email=$1',[email])).rows[0]; if(found?.password_hash)return send(res,409,{error:'An account with this email already exists. Use Sign in.'}); const id=found?.user_id||randomUUID(),salt=randomHex(16),hash=await hashPassword(password,salt); if(found)await pool.query("UPDATE users SET display_name=$1,password_hash=$2,password_salt=$3,status='active',role='user' WHERE user_id=$4",[name,hash,salt,id]); else await pool.query("INSERT INTO users VALUES($1,$2,$3,'user','active',now(),now(),$4,$5)",[id,email,name,hash,salt]); return send(res,201,{ok:true},{'Set-Cookie':setCookie(await createSession(id))}); }
+  if(path==='/api/account/login'&&req.method==='POST'){ const b=await body(req),row=(await pool.query('SELECT * FROM users WHERE email=$1',[(b.email||'').trim().toLowerCase()])).rows[0]; const calculated=row?.password_salt?await hashPassword(b.password||'',row.password_salt):''; if(!row?.password_hash||calculated.length!==row.password_hash.length||!timingSafeEqual(Buffer.from(calculated),Buffer.from(row.password_hash)))return send(res,401,{error:'Incorrect email or password.'}); if(row.status==='disabled')return send(res,403,{error:'Your account has been disabled by an administrator.'}); return send(res,200,{ok:true},{'Set-Cookie':setCookie(await createSession(row.user_id))}); }
+  if(path==='/api/account/logout'&&req.method==='POST'){ const token=cookieToken(req); if(token)await pool.query('DELETE FROM sessions WHERE token_hash=$1',[hex(token)]); return send(res,200,{ok:true},{'Set-Cookie':setCookie('',0)}); }
+  if(path==='/api/account/forgot-password'&&req.method==='POST'){ const b=await body(req),email=(b.email||'').trim().toLowerCase(),user=(await pool.query("SELECT * FROM users WHERE email=$1 AND status='active'",[email])).rows[0],message='If that email is registered, a password reset link will be sent.'; if(!user?.password_hash)return send(res,200,{message}); if(!process.env.RESEND_API_KEY||!process.env.MAIL_FROM)return send(res,503,{error:'Password reset email is not configured yet.'}); const token=randomHex(),tokenHash=hex(token); await pool.query('DELETE FROM password_reset_tokens WHERE user_id=$1',[user.user_id]); await pool.query("INSERT INTO password_reset_tokens VALUES($1,$2,now()+interval '30 minutes',NULL)",[tokenHash,user.user_id]); const resetUrl=`${process.env.RENDER_EXTERNAL_URL||'http://localhost:'+port}/tracker?reset=${token}`; const mail=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:`Bearer ${process.env.RESEND_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({from:process.env.MAIL_FROM,to:[email],subject:'Reset your Part Time Earnings password',html:`<p><a href="${resetUrl}">Reset password</a> (valid for 30 minutes)</p>`})}); if(!mail.ok)return send(res,500,{error:'Unable to send the reset email.'}); return send(res,200,{message}); }
+  if(path==='/api/account/reset-password'&&req.method==='POST'){ const b=await body(req); if(!b.token||!b.password||b.password.length<8)return send(res,400,{error:'Enter a password of at least 8 characters.'}); const row=(await pool.query('SELECT * FROM password_reset_tokens WHERE token_hash=$1 AND used_at IS NULL AND expires_at>now()',[hex(b.token)])).rows[0]; if(!row)return send(res,400,{error:'This reset link is invalid or expired.'}); const salt=randomHex(16); await pool.query('BEGIN'); try{await pool.query('UPDATE users SET password_hash=$1,password_salt=$2 WHERE user_id=$3',[await hashPassword(b.password,salt),salt,row.user_id]);await pool.query('UPDATE password_reset_tokens SET used_at=now() WHERE token_hash=$1',[hex(b.token)]);await pool.query('DELETE FROM sessions WHERE user_id=$1',[row.user_id]);await pool.query('COMMIT')}catch(e){await pool.query('ROLLBACK');throw e} return send(res,200,{ok:true}); }
+  const user=await currentUser(req); if(!user)return send(res,401,{error:'Sign in required.'});
+  const publicUser={userId:user.user_id,email:user.email,displayName:user.display_name||'',role:user.role,status:user.status};
+  if(path==='/api/data'&&req.method==='GET'){ if(user.role==='admin')return send(res,200,{data:null,updatedAt:null,user:publicUser}); const row=(await pool.query('SELECT * FROM tracker_state WHERE user_id=$1',[user.user_id])).rows[0]; return send(res,200,{data:row?.data||null,updatedAt:row?.updated_at||null,user:publicUser}); }
+  if(path==='/api/data'&&req.method==='POST'){ if(user.role==='admin')return send(res,403,{error:'Administrator accounts manage users only.'}); const b=await body(req); if(!Array.isArray(b.shifts)||!Array.isArray(b.expenses)||!Array.isArray(b.payments))return send(res,400,{error:'Invalid tracker data.'}); await pool.query('INSERT INTO tracker_state VALUES($1,$2,now()) ON CONFLICT(user_id) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at',[user.user_id,b]); return send(res,200,{ok:true,updatedAt:new Date().toISOString()}); }
+  if(path==='/api/admin/users'&&user.role==='admin'&&req.method==='GET'){ const rows=(await pool.query('SELECT user_id,email,display_name,role,status,created_at,last_seen_at FROM users ORDER BY created_at DESC')).rows; return send(res,200,{users:rows}); }
+  if(path==='/api/admin/users'&&user.role==='admin'&&req.method==='PATCH'){ const b=await body(req); if(b.userId===user.user_id&&(b.status==='disabled'||b.role==='user'))return send(res,400,{error:'You cannot remove your own administrator access.'}); if(b.status)await pool.query('UPDATE users SET status=$1 WHERE user_id=$2',[b.status,b.userId]); if(b.role)await pool.query('UPDATE users SET role=$1 WHERE user_id=$2',[b.role,b.userId]); return send(res,200,{ok:true}); }
+  return send(res,404,{error:'Not found.'});
+}
+
+await initDb();
+http.createServer(async(req,res)=>{ try{ const path=new URL(req.url,'http://localhost').pathname; if(path==='/health')return send(res,200,{ok:true}); if(path.startsWith('/api/'))return await api(req,res,path); if(path==='/' ){res.writeHead(302,{Location:'/tracker'});return res.end()} if(path==='/tracker'||path==='/tracker.html'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(trackerHtml)} res.writeHead(404);res.end('Not found'); }catch(error){console.error(error);send(res,500,{error:'Server request failed.'})} }).listen(port,'0.0.0.0',()=>console.log(`Part Time Earnings listening on ${port}`));
