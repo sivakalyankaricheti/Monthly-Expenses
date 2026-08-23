@@ -24,3 +24,10 @@ export const sessions = sqliteTable('sessions', {
   createdAt: text('created_at').notNull(),
   expiresAt: text('expires_at').notNull(),
 }, (table) => [index('sessions_user_id_idx').on(table.userId), index('sessions_expires_at_idx').on(table.expiresAt)]);
+
+export const passwordResetTokens = sqliteTable('password_reset_tokens', {
+  tokenHash: text('token_hash').primaryKey(),
+  userId: text('user_id').notNull(),
+  expiresAt: text('expires_at').notNull(),
+  usedAt: text('used_at'),
+}, (table) => [index('password_reset_user_idx').on(table.userId)]);

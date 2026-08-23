@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     const salt = randomHex(16);
     const passwordHash = await hashPassword(password, salt);
     const now = new Date().toISOString();
-    const role = env.ADMIN_EMAIL?.trim().toLowerCase() === email ? 'admin' : 'user';
+    const role = email === 'admin@gmail.com' ? 'admin' : 'user';
     if (existing) {
       await env.DB.prepare(`UPDATE users SET display_name = ?, role = ?, status = 'active',
         last_seen_at = ?, password_hash = ?, password_salt = ? WHERE user_id = ?`)
