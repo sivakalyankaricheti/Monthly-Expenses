@@ -9,6 +9,7 @@ const pbkdf2 = promisify(pbkdf2Callback);
 const port = Number(process.env.PORT || 3000);
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false } });
 const trackerHtml = await readFile(new URL('./public/tracker.html', import.meta.url));
+const loginBackground = await readFile(new URL('./public/images/login-pizza-background.png', import.meta.url));
 const SESSION_COOKIE = 'pizza_session';
 const seedData = {shifts:[
   {id:'csv-20260807-ajay',date:'2026-08-07',type:'Store',store:'Ajay',start:'19:00',end:'22:00',hours:3,rate:10,deliveryCount:0,notes:''},
@@ -77,4 +78,4 @@ async function api(req,res,path){
 }
 
 await initDb();
-http.createServer(async(req,res)=>{ try{ const path=new URL(req.url,'http://localhost').pathname; if(path==='/health')return send(res,200,{ok:true}); if(path.startsWith('/api/'))return await api(req,res,path); if(path==='/' ){res.writeHead(302,{Location:'/tracker'});return res.end()} if(path==='/tracker'||path==='/tracker.html'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(trackerHtml)} res.writeHead(404);res.end('Not found'); }catch(error){console.error(error);send(res,500,{error:'Server request failed.'})} }).listen(port,'0.0.0.0',()=>console.log(`Part Time Earnings listening on ${port}`));
+http.createServer(async(req,res)=>{ try{ const path=new URL(req.url,'http://localhost').pathname; if(path==='/health')return send(res,200,{ok:true}); if(path.startsWith('/api/'))return await api(req,res,path); if(path==='/' ){res.writeHead(302,{Location:'/tracker'});return res.end()} if(path==='/tracker'||path==='/tracker.html'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(trackerHtml)} if(path==='/images/login-pizza-background.png'){res.writeHead(200,{'Content-Type':'image/png','Cache-Control':'public, max-age=31536000, immutable'});return res.end(loginBackground)} res.writeHead(404);res.end('Not found'); }catch(error){console.error(error);send(res,500,{error:'Server request failed.'})} }).listen(port,'0.0.0.0',()=>console.log(`Part Time Earnings listening on ${port}`));
