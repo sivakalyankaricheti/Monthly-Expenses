@@ -11,13 +11,13 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process
 const trackerHtml = await readFile(new URL('./public/tracker.html', import.meta.url));
 const SESSION_COOKIE = 'pizza_session';
 const seedData = {shifts:[
-  {id:'csv-20260807-ajay',date:'2026-08-07',type:'Store',store:'Ajay',start:'',end:'',hours:3,rate:10,deliveryCount:0,notes:''},
-  {id:'csv-20260808-ajay',date:'2026-08-08',type:'Store',store:'Ajay',start:'',end:'',hours:3.833333333333332,rate:10,deliveryCount:0,notes:''},
-  {id:'csv-20260815-ajay',date:'2026-08-15',type:'Store',store:'Ajay',start:'',end:'',hours:4,rate:10,deliveryCount:0,notes:''},
-  {id:'csv-20260818-lesaint',date:'2026-08-18',type:'Store',store:'Le Saint',start:'',end:'',hours:2.5,rate:10,deliveryCount:1,notes:'one delivery'},
-  {id:'csv-20260819-lesaint',date:'2026-08-19',type:'Store',store:'Le Saint',start:'',end:'',hours:2.5,rate:10,deliveryCount:4,notes:'4 delivery'},
-  {id:'csv-20260821-lesaint',date:'2026-08-21',type:'Store',store:'Le Saint',start:'',end:'',hours:2.5,rate:10,deliveryCount:0,notes:''},
-  {id:'csv-20260822-lesaint',date:'2026-08-22',type:'Store',store:'Le Saint',start:'',end:'',hours:3.416666666666666,rate:10,deliveryCount:2,notes:'2 delivery'}
+  {id:'csv-20260807-ajay',date:'2026-08-07',type:'Store',store:'Ajay',start:'19:00',end:'22:00',hours:3,rate:10,deliveryCount:0,notes:''},
+  {id:'csv-20260808-ajay',date:'2026-08-08',type:'Store',store:'Ajay',start:'19:00',end:'22:50',hours:3.833333333333332,rate:10,deliveryCount:0,notes:''},
+  {id:'csv-20260815-ajay',date:'2026-08-15',type:'Store',store:'Ajay',start:'18:30',end:'22:30',hours:4,rate:10,deliveryCount:0,notes:''},
+  {id:'csv-20260818-lesaint',date:'2026-08-18',type:'Store',store:'Le Saint',start:'19:00',end:'21:30',hours:2.5,rate:10,deliveryCount:1,notes:'one delivery'},
+  {id:'csv-20260819-lesaint',date:'2026-08-19',type:'Store',store:'Le Saint',start:'18:45',end:'21:15',hours:2.5,rate:10,deliveryCount:4,notes:'4 delivery'},
+  {id:'csv-20260821-lesaint',date:'2026-08-21',type:'Store',store:'Le Saint',start:'11:30',end:'14:00',hours:2.5,rate:10,deliveryCount:0,notes:''},
+  {id:'csv-20260822-lesaint',date:'2026-08-22',type:'Store',store:'Le Saint',start:'11:45',end:'15:10',hours:3.416666666666666,rate:10,deliveryCount:2,notes:'2 delivery'}
 ],expenses:[],payments:[
   {id:'csv-payment-20260815',date:'2026-08-15',type:'Salary',amount:125,reference:'july last week & aug 1st week'},
   {id:'csv-payment-20260819',date:'2026-08-19',type:'Salary',amount:194.1,reference:'aug 2nd week'}
@@ -35,11 +35,21 @@ async function initDb(){
   await pool.query(`CREATE TABLE IF NOT EXISTS users(user_id text PRIMARY KEY,email text UNIQUE NOT NULL,display_name text,role text NOT NULL DEFAULT 'user',status text NOT NULL DEFAULT 'active',created_at timestamptz NOT NULL,last_seen_at timestamptz NOT NULL,password_hash text,password_salt text);
   CREATE TABLE IF NOT EXISTS tracker_state(user_id text PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,data jsonb NOT NULL,updated_at timestamptz NOT NULL);
   CREATE TABLE IF NOT EXISTS sessions(token_hash text PRIMARY KEY,user_id text NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,created_at timestamptz NOT NULL,expires_at timestamptz NOT NULL);
-  CREATE TABLE IF NOT EXISTS password_reset_tokens(token_hash text PRIMARY KEY,user_id text NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,expires_at timestamptz NOT NULL,used_at timestamptz);`);
+  CREATE TABLE IF NOT EXISTS password_reset_tokens(token_hash text PRIMARY KEY,user_id text NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,expires_at timestamptz NOT NULL,used_at timestamptz);
+  CREATE TABLE IF NOT EXISTS app_migrations(name text PRIMARY KEY,applied_at timestamptz NOT NULL DEFAULT now());`);
   await pool.query(`INSERT INTO users(user_id,email,display_name,role,status,created_at,last_seen_at,password_hash,password_salt) VALUES('platform-admin','admin@gmail.com','Administrator','admin','active',now(),now(),'fcd3757bb17aaf30a3570ab51c5144ab303d8f54d1c638e7d0647df7a3d86aab','75ab0b199fe826154a66984e93ff59e3') ON CONFLICT(email) DO UPDATE SET role='admin',status='active'`);
   const owner='mzll6UGvqFvra8c1By5f2Vz9yBs4F1QHOLSFeQfyvy9LLEhmlm0f9a';
-  await pool.query(`INSERT INTO users(user_id,email,display_name,role,status,created_at,last_seen_at) VALUES($1,'kalyankaricheti@gmail.com','Kalyan','user','active',now(),now()) ON CONFLICT(email) DO NOTHING`,[owner]);
-  await pool.query(`INSERT INTO tracker_state(user_id,data,updated_at) VALUES($1,$2,now()) ON CONFLICT(user_id) DO NOTHING`,[owner,seedData]);
+  await pool.query(`INSERT INTO users(user_id,email,display_name,role,status,created_at,last_seen_at,password_hash,password_salt)
+    VALUES($1,'kalyankaricheti@gmail.com','Sivakalyan','user','active','2026-08-23T15:11:51.245Z','2026-08-23T16:22:30.064Z',$2,$3)
+    ON CONFLICT(email) DO UPDATE SET display_name='Sivakalyan',role='user',status='active',
+      password_hash=COALESCE(users.password_hash,excluded.password_hash),password_salt=COALESCE(users.password_salt,excluded.password_salt)`,
+    [owner,'5de29c703abb8cdf75bd44e64b0de7040ed8973e27a56544cc26bc34fcc2aa9b','4f7e070ae0dc82837b5c5d73f8b40997']);
+  const migrated=(await pool.query("SELECT 1 FROM app_migrations WHERE name='sites-full-user-import-v1'")).rowCount;
+  if(!migrated){
+    await pool.query(`INSERT INTO tracker_state(user_id,data,updated_at) VALUES($1,$2,'2026-08-23T16:22:30.418Z')
+      ON CONFLICT(user_id) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at`,[owner,seedData]);
+    await pool.query("INSERT INTO app_migrations(name) VALUES('sites-full-user-import-v1')");
+  }
 }
 
 async function createSession(userId){ const token=randomHex(); await pool.query('INSERT INTO sessions VALUES($1,$2,now(),now()+interval \'30 days\')',[hex(token),userId]); return token; }
