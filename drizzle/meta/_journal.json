@@ -43,6 +43,13 @@
       "when": 1787500103357,
       "tag": "0005_flaky_orphan",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787503500000,
+      "tag": "0006_move_admin_data_to_user",
+      "breakpoints": true
     }
   ]
 }

@@ -24,14 +24,9 @@ function handleError(error: unknown) {
 export async function GET(request: Request) {
   try {
     const user = await requireAppUser(request);
+    if (user.role === 'admin') return NextResponse.json({ data: null, updatedAt: null, user });
     let row = await env.DB.prepare('SELECT data, updated_at FROM tracker_state WHERE user_id = ?')
       .bind(user.userId).first<{ data: string; updated_at: string }>();
-    if (!row && user.role === 'admin') {
-      const now = new Date().toISOString();
-      await env.DB.prepare('INSERT INTO tracker_state (user_id, data, updated_at) VALUES (?, ?, ?)')
-        .bind(user.userId, JSON.stringify(seedData), now).run();
-      row = { data: JSON.stringify(seedData), updated_at: now };
-    }
     return NextResponse.json({ data: row ? JSON.parse(row.data) : null, updatedAt: row?.updated_at ?? null, user });
   } catch (error) { return handleError(error); }
 }
@@ -39,6 +34,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const user = await requireAppUser(request);
+    if (user.role === 'admin') return NextResponse.json({ error: 'Administrator accounts manage users only.' }, { status: 403 });
     const body = await request.json();
     if (!body || !Array.isArray(body.shifts) || !Array.isArray(body.expenses) || !Array.isArray(body.payments)) {
       return NextResponse.json({ error: 'Invalid tracker data.' }, { status: 400 });

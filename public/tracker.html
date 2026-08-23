@@ -144,6 +144,7 @@ async function cloudWrite(){
  catch(error){console.warn(error);setSync('error','Unable to save right now')}
 }
 function setAccountStatus(){if(!currentUser)return;let name=esc(currentUser.displayName||currentUser.email),role=currentUser.role==='admin'?' • Administrator':'';$('syncStatus').className='sync-status online';$('syncText').innerHTML=`${name}${role} • <button type="button" onclick="logout()">Sign out</button>`}
+function showAdminOnly(){document.querySelectorAll('.nav button').forEach(button=>button.hidden=button.id!=='adminNav');document.querySelectorAll('.page').forEach(page=>page.classList.toggle('active',page.id==='admin'));$('adminNav').hidden=false;$('adminNav').classList.add('active');loadAdminUsers()}
 function save(){dbWrite();localStorage.setItem(KEY,JSON.stringify(data));render();cloudWrite()}
 function hours(a,b){let [ah,am]=a.split(':').map(Number),[bh,bm]=b.split(':').map(Number);let x=bh+bm/60-(ah+am/60);return x<0?x+24:x}
 const deliveryBonus=x=>(+x.deliveryCount||0)*(+data.settings.deliveryRate||0);
@@ -228,7 +229,7 @@ async function startApp(){
  try{await openDatabase();let stored=await dbRead(),legacy=JSON.parse(localStorage.getItem(KEY)||'null');local=normalize(stored||legacy||defaults);dbWrite()}
  catch(error){console.warn('IndexedDB unavailable; using local storage fallback.',error);local=normalize(JSON.parse(localStorage.getItem(KEY)||'null')||defaults)}
  data=local;
- if(location.protocol!=='file:')try{let response=await fetch('/api/data');if(response.status===401)return showAuth('Sign in to keep your records private and available on all your devices.');if(response.status===403)return showAuth((await response.json()).error);if(!response.ok)throw new Error('Load failed');let result=await response.json();currentUser=result.user;if(result.data)data=normalize(result.data);else data=structuredClone(defaults);$('adminNav').hidden=currentUser.role!=='admin';setAccountStatus()}catch(error){console.warn(error);setSync('error','Unable to load your account')}
+ if(location.protocol!=='file:')try{let response=await fetch('/api/data');if(response.status===401)return showAuth('Sign in to keep your records private and available on all your devices.');if(response.status===403)return showAuth((await response.json()).error);if(!response.ok)throw new Error('Load failed');let result=await response.json();currentUser=result.user;if(result.data)data=normalize(result.data);else data=structuredClone(defaults);$('adminNav').hidden=currentUser.role!=='admin';setAccountStatus();if(currentUser.role==='admin'){showAdminOnly();return}}catch(error){console.warn(error);setSync('error','Unable to load your account')}
  else setSync('','Saved on this device');
  initDates();render();
 }
