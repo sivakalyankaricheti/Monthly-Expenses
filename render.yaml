@@ -3,8 +3,8 @@ services:
     name: part-time-earnings
     runtime: node
     plan: free
-    buildCommand: corepack enable && pnpm install --frozen-lockfile
-    startCommand: pnpm start
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
