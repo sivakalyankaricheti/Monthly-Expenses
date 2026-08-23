@@ -8,7 +8,7 @@
 :root{--bg:#f5f6f8;--card:#fff;--text:#1f2937;--muted:#6b7280;--accent:#e31837;--green:#16803c;--border:#e5e7eb;--blue:#2563eb}
 *{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
 header{background:linear-gradient(135deg,#d91535,#f04444);color:#fff;padding:28px 20px}
-header .wrap{max-width:1150px;margin:auto}h1{margin:0 0 6px;font-size:30px}header p{margin:0;opacity:.9}.sync-status{display:inline-flex;align-items:center;gap:6px;margin-top:12px;padding:6px 10px;border-radius:999px;background:#ffffff20;font-size:12px;font-weight:700}.sync-dot{width:8px;height:8px;border-radius:50%;background:#fde68a}.sync-status.online .sync-dot{background:#86efac}.sync-status.error .sync-dot{background:#fecaca}
+header .wrap{max-width:1150px;margin:auto}h1{margin:0 0 6px;font-size:30px}header p{margin:0;opacity:.9}.sync-status{display:inline-flex;align-items:center;gap:6px;margin-top:12px;padding:6px 10px;border-radius:999px;background:#ffffff20;font-size:12px;font-weight:700}.sync-dot{width:8px;height:8px;border-radius:50%;background:#fde68a}.sync-status.online .sync-dot{background:#86efac}.sync-status.error .sync-dot{background:#fecaca}.sync-status a{color:#fff}.store-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.store-card{border:1px solid var(--border);border-radius:12px;padding:15px;background:#fafafa}.store-card b{display:block;font-size:22px;color:var(--green);margin-top:5px}.auth-screen{position:fixed;inset:0;z-index:20;background:linear-gradient(135deg,#991b1b,#e31837);display:none;place-items:center;padding:20px}.auth-screen.show{display:grid}.auth-card{width:min(430px,100%);background:#fff;border-radius:18px;padding:28px;box-shadow:0 24px 70px #0004;text-align:center}.auth-card h2{font-size:25px}.auth-card p{color:var(--muted);line-height:1.5}.auth-card a{display:inline-block;background:var(--accent);color:#fff;text-decoration:none;padding:12px 18px;border-radius:9px;font-weight:800}.admin-badge{font-size:11px;background:#fee2e2;color:#991b1b;padding:3px 7px;border-radius:999px;font-weight:800}
 nav{background:#fff;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:5}
 .nav{max-width:1150px;margin:auto;display:flex;gap:6px;overflow:auto;padding:8px 12px}
 .nav button{border:0;background:transparent;padding:10px 14px;border-radius:9px;cursor:pointer;font-weight:600;white-space:nowrap}
@@ -35,9 +35,10 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 </style>
 </head>
 <body>
-<header><div class="wrap"><h1>🍕 Pizza Shift & Money Tracker</h1><p>Track store work, delivery shifts, payments, and every expense in one place.</p><div id="syncStatus" class="sync-status"><span class="sync-dot"></span><span id="syncText">Loading database…</span></div></div></header>
+<div id="authScreen" class="auth-screen"><div class="auth-card"><h2>🍕 Welcome</h2><p id="authMessage">Sign in to keep your shifts, earnings, and expenses private to your account.</p><a href="/signin-with-chatgpt?return_to=/tracker.html">Sign in with ChatGPT</a></div></div>
+<header><div class="wrap"><h1>🍕 Pizza Shift & Money Tracker</h1><p>Track store work, delivery shifts, payments, and every expense in one place.</p><div id="syncStatus" class="sync-status"><span class="sync-dot"></span><span id="syncText">Checking your account…</span></div></div></header>
 <nav><div class="nav">
-<button data-page="dashboard" class="active">Dashboard</button><button data-page="shifts">Shifts</button><button data-page="expenses">Expenses</button><button data-page="payments">Payments</button><button data-page="settings">Settings</button>
+<button data-page="dashboard" class="active">Dashboard</button><button data-page="shifts">Shifts</button><button data-page="expenses">Expenses</button><button data-page="payments">Payments</button><button data-page="settings">Settings</button><button data-page="admin" id="adminNav" hidden>Admin</button>
 </div></nav>
 <main>
 <section id="dashboard" class="page active">
@@ -103,15 +104,17 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 <div class="panel"><h2>Settings & data</h2>
 <div class="formgrid"><div><label>Currency symbol</label><input id="currency" value="€"></div><div><label>Default hourly rate (€)</label><input id="defaultRate" type="number" min="0" step=".01"></div><div><label>Earnings per delivery (€)</label><input id="deliveryRate" type="number" min="0" step=".01"></div></div>
 <div class="actions"><button class="primary" id="saveSettings">Save settings</button><button class="secondary" id="exportCsv">Export CSV</button><button class="secondary" id="exportBackup">Export database backup</button><button class="secondary" id="importBackup">Import database backup</button><input id="backupFile" type="file" accept="application/json,.json" hidden><button class="danger" id="clearAll">Delete all data</button></div>
-<p class="hint">The live app stores data in its shared cloud database. The downloaded file uses IndexedDB on this device. Use a database backup to move existing downloaded-file records into the live app.</p>
+<p class="hint">Your records are private to your signed-in account. Use a backup if you want an additional personal copy.</p>
 </div>
 </section>
+<section id="admin" class="page"><div class="panel"><h2>User administration</h2><p class="hint">Manage access and administrator roles. Passwords are handled securely by ChatGPT and are never visible here.</p><div id="adminUsers"></div></div></section>
 </main>
 <script>
 const KEY='pizza_tracker_v1', DB_NAME='pizza_money_tracker', DB_STORE='tracker';
 const defaults={shifts:[],expenses:[],payments:[],settings:{currency:'€',defaultRate:10,deliveryRate:2}};
-let data=structuredClone(defaults), db;
+let data=structuredClone(defaults), db, currentUser=null;
 const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>(data.settings.currency||'€')+Number(n||0).toFixed(2);
 const today=new Date().toISOString().slice(0,10), month=today.slice(0,7);
 function normalize(raw){
@@ -126,11 +129,13 @@ function openDatabase(){return new Promise((resolve,reject)=>{let request=indexe
 function dbRead(){return new Promise((resolve,reject)=>{let request=db.transaction(DB_STORE).objectStore(DB_STORE).get('data');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)})}
 function dbWrite(){if(!db)return;let tx=db.transaction(DB_STORE,'readwrite');tx.objectStore(DB_STORE).put(data,'data')}
 function setSync(state,text){$('syncStatus').className='sync-status '+state;$('syncText').textContent=text}
+function showAuth(message){$('authMessage').textContent=message||'Sign in to continue.';$('authScreen').classList.add('show')}
 async function cloudWrite(){
  if(location.protocol==='file:')return;
- try{let response=await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});if(!response.ok)throw new Error('Save failed');setSync('online','Saved to cloud database')}
- catch(error){console.warn(error);setSync('error','Saved on this device; cloud unavailable')}
+ try{let response=await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});if(response.status===401)return showAuth('Sign in to save your records.');if(response.status===403)return showAuth((await response.json()).error);if(!response.ok)throw new Error('Save failed');setAccountStatus()}
+ catch(error){console.warn(error);setSync('error','Unable to save right now')}
 }
+function setAccountStatus(){if(!currentUser)return;let name=esc(currentUser.displayName||currentUser.email),role=currentUser.role==='admin'?' • Administrator':'';$('syncStatus').className='sync-status online';$('syncText').innerHTML=`${name}${role} • <a href="/signout-with-chatgpt?return_to=/tracker.html">Sign out</a>`}
 function save(){dbWrite();localStorage.setItem(KEY,JSON.stringify(data));render();cloudWrite()}
 function hours(a,b){let [ah,am]=a.split(':').map(Number),[bh,bm]=b.split(':').map(Number);let x=bh+bm/60-(ah+am/60);return x<0?x+24:x}
 const deliveryBonus=x=>(+x.deliveryCount||0)*(+data.settings.deliveryRate||0);
@@ -154,7 +159,7 @@ function renderStoreEarnings(){
  const m=$('dashMonth').value||month, totals={};
  data.shifts.filter(x=>x.date.startsWith(m)).forEach(x=>{let store=x.store||'Personal';totals[store]=(totals[store]||0)+shiftEarnings(x)});
  let rows=Object.entries(totals).sort((a,b)=>b[1]-a[1]);
- $('storeEarnings').innerHTML=rows.length?`<table><tr><th>Store / employer</th><th>Earnings</th></tr>${rows.map(([store,total])=>`<tr><td>${store}</td><td class="positive">${money(total)}</td></tr>`).join('')}</table>`:'<div class="empty">No store earnings for this month.</div>';
+ $('storeEarnings').innerHTML=rows.length?`<div class="store-cards">${rows.map(([store,total])=>`<div class="store-card"><span>${store}</span><b>${money(total)}</b></div>`).join('')}</div>`:'<div class="empty">No store earnings for this month.</div>';
 }
 function renderShifts(){
  let m=$('shiftMonth').value||'', f=$('shiftFilter').value, sf=$('shiftStoreFilter').value;
@@ -193,6 +198,14 @@ $('clearAll').onclick=()=>{if(confirm('Delete ALL shifts, payments and expenses?
 $('exportBackup').onclick=()=>{let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='pizza-money-database-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
 $('importBackup').onclick=()=>$('backupFile').click();
 $('backupFile').onchange=async e=>{let file=e.target.files[0];if(!file)return;try{let imported=normalize(JSON.parse(await file.text()));data=imported;save();alert('Database backup imported successfully.')}catch(error){alert('This backup file is not valid.')}e.target.value=''};
+async function loadAdminUsers(){
+ if(currentUser?.role!=='admin')return;
+ let response=await fetch('/api/admin/users');if(!response.ok)return;
+ let result=await response.json();
+ $('adminUsers').innerHTML=result.users.length?`<table><tr><th>User</th><th>Role</th><th>Status</th><th>Last active</th></tr>${result.users.map(u=>`<tr><td>${esc(u.display_name||u.email)}<br><small>${esc(u.email)}</small></td><td><select onchange="updateUser('${esc(u.user_id)}','role',this.value)"><option value="user" ${u.role==='user'?'selected':''}>User</option><option value="admin" ${u.role==='admin'?'selected':''}>Admin</option></select></td><td><select onchange="updateUser('${esc(u.user_id)}','status',this.value)"><option value="active" ${u.status==='active'?'selected':''}>Active</option><option value="disabled" ${u.status==='disabled'?'selected':''}>Disabled</option></select></td><td>${esc(u.last_seen_at.slice(0,10))}</td></tr>`).join('')}</table>`:'<div class="empty">No users yet.</div>';
+}
+async function updateUser(userId,field,value){let response=await fetch('/api/admin/users',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId,[field]:value})});let result=await response.json();if(!response.ok)alert(result.error||'Update failed.');loadAdminUsers()}
+$('adminNav').addEventListener('click',loadAdminUsers);
 $('exportCsv').onclick=()=>{
  let rows=[['Date','Record type','Store / employer','Work / payment / expense type','Start time','End time','Hours','Hourly rate','Delivery count','Delivery earnings','Total amount','Payment method','Description / notes']];
  data.shifts.forEach(x=>rows.push([x.date,'Shift',x.store||'Personal',x.type,x.start,x.end,x.hours,x.rate,x.deliveryCount||0,deliveryBonus(x),shiftEarnings(x),'',x.notes||'']));
@@ -207,7 +220,7 @@ async function startApp(){
  try{await openDatabase();let stored=await dbRead(),legacy=JSON.parse(localStorage.getItem(KEY)||'null');local=normalize(stored||legacy||defaults);dbWrite()}
  catch(error){console.warn('IndexedDB unavailable; using local storage fallback.',error);local=normalize(JSON.parse(localStorage.getItem(KEY)||'null')||defaults)}
  data=local;
- if(location.protocol!=='file:')try{let response=await fetch('/api/data');if(!response.ok)throw new Error('Load failed');let result=await response.json();if(result.data)data=normalize(result.data);else if(data.shifts.length||data.expenses.length||data.payments.length)await cloudWrite();setSync('online','Connected to cloud database')}catch(error){console.warn(error);setSync('error','Using this device; cloud unavailable')}
+ if(location.protocol!=='file:')try{let response=await fetch('/api/data');if(response.status===401)return showAuth('Sign in to keep your records private and available on all your devices.');if(response.status===403)return showAuth((await response.json()).error);if(!response.ok)throw new Error('Load failed');let result=await response.json();currentUser=result.user;if(result.data)data=normalize(result.data);else data=structuredClone(defaults);$('adminNav').hidden=currentUser.role!=='admin';setAccountStatus()}catch(error){console.warn(error);setSync('error','Unable to load your account')}
  else setSync('','Saved on this device');
  initDates();render();
 }
