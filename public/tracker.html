@@ -14,7 +14,7 @@ nav{background:#fff;border-bottom:1px solid var(--border);position:sticky;top:0;
 .nav button{border:0;background:transparent;padding:10px 14px;border-radius:9px;cursor:pointer;font-weight:600;white-space:nowrap}
 .nav button.active{background:#fee2e2;color:#b91c1c}
 main{max-width:1150px;margin:22px auto;padding:0 16px}.page{display:none}.page.active{display:block}
-.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px}
 .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;box-shadow:0 2px 8px #00000008}
 .card .label{font-size:13px;color:var(--muted)}.money{font-size:25px;font-weight:800;margin-top:5px}.positive{color:var(--green)}.negative{color:var(--accent)}
 .grid{display:grid;grid-template-columns:1fr 1.5fr;gap:18px}.panel{background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:18px}
@@ -46,7 +46,8 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 <div class="card"><div class="label">Personal earnings</div><div id="dashStore" class="money">€0.00</div></div>
 <div class="card"><div class="label">Delivery earnings</div><div id="dashDelivery" class="money">€0.00</div></div>
 <div class="card"><div class="label">Total expenses</div><div id="dashExpenses" class="money negative">€0.00</div></div>
-<div class="card"><div class="label">Net money</div><div id="dashNet" class="money positive">€0.00</div></div>
+<div class="card"><div class="label">Net amount (earnings + payments − expenses)</div><div id="dashNet" class="money positive">€0.00</div></div>
+<div class="card"><div class="label">Amount still to receive</div><div id="dashDue" class="money">€0.00</div></div>
 </div>
 <div class="grid">
 <div class="panel"><h2>Monthly summary</h2><div class="formgrid"><div><label>Month</label><input type="month" id="dashMonth"></div></div>
@@ -54,6 +55,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 <div class="panel"><h2>Recent activity</h2><div id="recentActivity"></div></div>
 </div>
 <div class="panel"><h2>Earnings by store</h2><div id="storeEarnings"></div></div>
+<div class="panel"><h2>Le Saint weekly payment</h2><p class="hint">Each week runs from Monday through Sunday.</p><div id="leSaintWeekly"></div></div>
 </section>
 
 <section id="shifts" class="page">
@@ -156,19 +158,25 @@ function render(){
  const expenses=data.expenses.reduce((s,x)=>s+x.amount,0);
  const payments=data.payments.reduce((s,x)=>s+x.amount,0);
  $('dashStore').textContent=money(personal);$('dashDelivery').textContent=money(del);$('dashExpenses').textContent=money(expenses);
- $('dashNet').textContent=money(personal-expenses); $('currency').value=data.settings.currency; $('defaultRate').value=data.settings.defaultRate;$('deliveryRate').value=data.settings.deliveryRate;
- renderMonthly();renderStoreEarnings();renderShifts();renderExpenses();renderPayments();renderRecent();
+ $('dashNet').textContent=money(personal+payments-expenses);$('dashDue').textContent=money(Math.max(personal-payments,0)); $('currency').value=data.settings.currency; $('defaultRate').value=data.settings.defaultRate;$('deliveryRate').value=data.settings.deliveryRate;
+ renderMonthly();renderStoreEarnings();renderLeSaintWeekly();renderShifts();renderExpenses();renderPayments();renderRecent();
 }
 function renderMonthly(){
  const m=$('dashMonth').value||month, sh=data.shifts.filter(x=>x.date.startsWith(m)), ex=data.expenses.filter(x=>x.date.startsWith(m)), pa=data.payments.filter(x=>x.date.startsWith(m));
  let personal=sh.reduce((s,x)=>s+shiftEarnings(x),0), del=sh.reduce((s,x)=>s+deliveryBonus(x),0), e=ex.reduce((s,x)=>s+x.amount,0), p=pa.reduce((s,x)=>s+x.amount,0);
- $('monthlySummary').innerHTML=`<div class="summaryline"><span>Total shift earnings</span><b>${money(personal)}</b></div><div class="summaryline"><span>Included delivery bonuses</span><b>${money(del)}</b></div><div class="summaryline"><span>Payments received</span><b>${money(p)}</b></div><div class="summaryline"><span>Expenses</span><b class="negative">-${money(e)}</b></div><div class="summaryline"><span>Net earnings</span><b class="positive">${money(personal-e)}</b></div>`;
+ $('monthlySummary').innerHTML=`<div class="summaryline"><span>Total shift earnings</span><b>${money(personal)}</b></div><div class="summaryline"><span>Included delivery bonuses</span><b>${money(del)}</b></div><div class="summaryline"><span>Payments received</span><b>${money(p)}</b></div><div class="summaryline"><span>Expenses</span><b class="negative">-${money(e)}</b></div><div class="summaryline"><span>Net amount</span><b class="positive">${money(personal+p-e)}</b></div><div class="summaryline"><span>Amount still to receive</span><b>${money(Math.max(personal-p,0))}</b></div>`;
 }
 function renderStoreEarnings(){
  const m=$('dashMonth').value||month, totals={};
  data.shifts.filter(x=>x.date.startsWith(m)).forEach(x=>{let store=x.store||'Personal';totals[store]=(totals[store]||0)+shiftEarnings(x)});
  let rows=Object.entries(totals).sort((a,b)=>b[1]-a[1]);
  $('storeEarnings').innerHTML=rows.length?`<div class="store-cards">${rows.map(([store,total])=>`<div class="store-card"><span>${store}</span><b>${money(total)}</b></div>`).join('')}</div>`:'<div class="empty">No store earnings for this month.</div>';
+}
+function renderLeSaintWeekly(){
+ const isLeSaint=x=>['lesaint','le saint'].includes(String(x.store||'').trim().toLowerCase()),weeks={};
+ data.shifts.filter(isLeSaint).forEach(x=>{let d=new Date(x.date+'T12:00:00Z'),day=d.getUTCDay()||7,monday=new Date(d);monday.setUTCDate(d.getUTCDate()-day+1);let sunday=new Date(monday);sunday.setUTCDate(monday.getUTCDate()+6);let key=monday.toISOString().slice(0,10);weeks[key]??={monday:key,sunday:sunday.toISOString().slice(0,10),hours:0,deliveries:0,earnings:0};weeks[key].hours+=+x.hours||0;weeks[key].deliveries+=+x.deliveryCount||0;weeks[key].earnings+=shiftEarnings(x)});
+ let rows=Object.values(weeks).sort((a,b)=>b.monday.localeCompare(a.monday));
+ $('leSaintWeekly').innerHTML=rows.length?`<table><tr><th>Week (Mon–Sun)</th><th>Hours</th><th>Deliveries</th><th>Weekly payment</th></tr>${rows.map(w=>`<tr><td>${w.monday} – ${w.sunday}</td><td>${w.hours.toFixed(2)}</td><td>${w.deliveries}</td><td class="positive"><b>${money(w.earnings)}</b></td></tr>`).join('')}</table>`:'<div class="empty">No Le Saint shifts yet.</div>';
 }
 function renderShifts(){
  let m=$('shiftMonth').value||'', f=$('shiftFilter').value, sf=$('shiftStoreFilter').value;
