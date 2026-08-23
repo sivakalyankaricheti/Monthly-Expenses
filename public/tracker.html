@@ -47,7 +47,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 <div class="card"><div class="label">Delivery earnings</div><div id="dashDelivery" class="money">€0.00</div></div>
 <div class="card"><div class="label">Total expenses</div><div id="dashExpenses" class="money negative">€0.00</div></div>
 <div class="card"><div class="label">Net amount (earnings + payments − expenses)</div><div id="dashNet" class="money positive">€0.00</div></div>
-<div class="card"><div class="label">Amount still to receive</div><div id="dashDue" class="money">€0.00</div></div>
+<div class="card"><div class="label">Total amount without expenses</div><div id="dashGross" class="money">€0.00</div></div>
 </div>
 <div class="grid">
 <div class="panel"><h2>Monthly summary</h2><div class="formgrid"><div><label>Month</label><input type="month" id="dashMonth"></div></div>
@@ -157,13 +157,13 @@ function render(){
  const expenses=data.expenses.reduce((s,x)=>s+x.amount,0);
  const payments=data.payments.reduce((s,x)=>s+x.amount,0);
  $('dashStore').textContent=money(personal);$('dashDelivery').textContent=money(del);$('dashExpenses').textContent=money(expenses);
- $('dashNet').textContent=money(personal+payments-expenses);$('dashDue').textContent=money(Math.max(personal-payments,0)); $('currency').value=data.settings.currency; $('defaultRate').value=data.settings.defaultRate;$('deliveryRate').value=data.settings.deliveryRate;
+ $('dashNet').textContent=money(personal+payments-expenses);$('dashGross').textContent=money(personal+payments); $('currency').value=data.settings.currency; $('defaultRate').value=data.settings.defaultRate;$('deliveryRate').value=data.settings.deliveryRate;
  renderMonthly();renderStoreEarnings();renderShifts();renderExpenses();renderPayments();renderRecent();
 }
 function renderMonthly(){
  const m=$('dashMonth').value||month, sh=data.shifts.filter(x=>x.date.startsWith(m)), ex=data.expenses.filter(x=>x.date.startsWith(m)), pa=data.payments.filter(x=>x.date.startsWith(m));
  let personal=sh.reduce((s,x)=>s+shiftEarnings(x),0), del=sh.reduce((s,x)=>s+deliveryBonus(x),0), e=ex.reduce((s,x)=>s+x.amount,0), p=pa.reduce((s,x)=>s+x.amount,0);
- $('monthlySummary').innerHTML=`<div class="summaryline"><span>Total shift earnings</span><b>${money(personal)}</b></div><div class="summaryline"><span>Included delivery bonuses</span><b>${money(del)}</b></div><div class="summaryline"><span>Payments received</span><b>${money(p)}</b></div><div class="summaryline"><span>Expenses</span><b class="negative">-${money(e)}</b></div><div class="summaryline"><span>Net amount</span><b class="positive">${money(personal+p-e)}</b></div><div class="summaryline"><span>Amount still to receive</span><b>${money(Math.max(personal-p,0))}</b></div>`;
+ $('monthlySummary').innerHTML=`<div class="summaryline"><span>Total shift earnings</span><b>${money(personal)}</b></div><div class="summaryline"><span>Included delivery bonuses</span><b>${money(del)}</b></div><div class="summaryline"><span>Payments received</span><b>${money(p)}</b></div><div class="summaryline"><span>Total amount without expenses</span><b>${money(personal+p)}</b></div><div class="summaryline"><span>Expenses</span><b class="negative">-${money(e)}</b></div><div class="summaryline"><span>Net amount</span><b class="positive">${money(personal+p-e)}</b></div>`;
 }
 function renderStoreEarnings(){
  const m=$('dashMonth').value||month, totals={};
