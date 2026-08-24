@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Part Time Earnings</string>
+    <string name="title_activity_main">Part Time Earnings</string>
+    <string name="package_name">com.parttimeearnings.app</string>
+    <string name="custom_url_scheme">com.parttimeearnings.app</string>
+</resources>

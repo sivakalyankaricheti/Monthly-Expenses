@@ -36,3 +36,7 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/.mobile-tools/
+/android/local.properties
+*.jks
+*.keystore
