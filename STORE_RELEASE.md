@@ -22,6 +22,10 @@ pnpm install
 
 ## Google Play release
 
+An upload-key-signed Android App Bundle has been generated locally at `outputs/Part-Time-Earnings-1.0.aab`. Its SHA-256 is `C055BD77564320636111981A29CE153423BFC472F460B8611B6762FDEAA97C84`.
+
+The private upload key and password are stored locally under `.store-secrets/` and excluded from Git. Back up both files in a secure password manager or encrypted drive before uploading the first release.
+
 1. Install Android Studio (or Android SDK platform 36 and build-tools).
 2. Open `android/` in Android Studio.
 3. Create and securely back up an upload keystore. Never commit it to Git.
