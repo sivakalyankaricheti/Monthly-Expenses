@@ -3,6 +3,8 @@ services:
     name: part-time-earnings
     runtime: node
     plan: free
+    domains:
+      - parttimeearnings.com
     buildCommand: npm install --omit=dev
     startCommand: npm start
     healthCheckPath: /health
