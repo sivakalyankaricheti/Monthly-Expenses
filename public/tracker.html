@@ -117,7 +117,7 @@ header .wrap{animation:heroIn .55s cubic-bezier(.22,1,.36,1) both}.page.active{a
 <div class="full"><label>Notes</label><textarea id="shiftNotes" placeholder="e.g. 8 deliveries, tips, changed timing..."></textarea></div>
 </div><div class="actions"><button class="primary" type="submit">Save shift</button><button class="secondary" type="button" id="shiftReset">Clear</button></div></form>
 <p class="hint">Shift earnings are hours × hourly rate, plus €2 for every delivery. Add the store/employer name to see separate earnings for each store.</p></div>
-<div class="panel"><h2>Your shifts</h2><div class="filters"><input type="month" id="shiftMonth"><select id="shiftFilter"><option value="">All types</option><option>Store</option><option>Delivery</option></select><select id="shiftStoreFilter"><option value="">All stores</option></select></div><div id="shiftTable"></div></div>
+<div class="panel"><h2>Your shifts</h2><div class="filters"><input type="month" id="shiftMonth"><select id="shiftFilter"><option value="">All types</option><option>Store</option><option>Delivery</option></select><select id="shiftStoreFilter"><option value="">All stores</option></select></div><div class="actions"><button class="secondary" type="button" id="downloadFilteredShifts">Download filtered CSV</button><button class="secondary" type="button" id="downloadAllShifts">Download all shifts CSV</button></div><p class="hint">Choose a store, month, or shift type above to download only those results.</p><div id="shiftTable"></div></div>
 </div>
 </section>
 
@@ -223,13 +223,27 @@ function renderStoreEarnings(){
  let stores=[...new Set([...Object.keys(totals),...Object.keys(paid)])],rows=stores.map(store=>[store,totals[store]||0,paid[store]||0]).sort((a,b)=>b[1]-a[1]);
  $('storeEarnings').innerHTML=rows.length?`<div class="store-cards">${rows.map(([store,total,received])=>`<div class="store-card"><span>${esc(store)}</span><b>${money(total)}</b><small>Paid: ${money(received)}</small></div>`).join('')}</div>`:'<div class="empty">No store earnings or payments for this month.</div>';
 }
+function filteredShifts(){
+ let m=$('shiftMonth').value||'',f=$('shiftFilter').value,sf=$('shiftStoreFilter').value;
+ return data.shifts.filter(x=>(!m||x.date.startsWith(m))&&(!f||x.type===f)&&(!sf||(x.store||'Personal')===sf)).sort((a,b)=>b.date.localeCompare(a.date));
+}
 function renderShifts(){
- let m=$('shiftMonth').value||'', f=$('shiftFilter').value, sf=$('shiftStoreFilter').value;
+ let sf=$('shiftStoreFilter').value;
  let stores=[...new Set(data.shifts.map(x=>x.store||'Personal'))].sort();
  $('shiftStoreFilter').innerHTML='<option value="">All stores</option>'+stores.map(s=>`<option ${s===sf?'selected':''}>${s}</option>`).join('');
- let arr=data.shifts.filter(x=>(!m||x.date.startsWith(m))&&(!f||x.type===f)&&(!sf||(x.store||'Personal')===sf)).sort((a,b)=>b.date.localeCompare(a.date));
+ let arr=filteredShifts();
  $('shiftTable').innerHTML=arr.length?`<table class="desktop-table"><tr><th>Date</th><th>Store / employer</th><th>Type</th><th>Time</th><th>Hours</th><th>Deliveries</th><th>Earnings</th><th></th></tr>${arr.map(x=>`<tr><td>${x.date}</td><td>${esc(x.store||'Personal')}</td><td>${esc(x.type)}</td><td>${x.start}–${x.end}</td><td>${x.hours.toFixed(2)}</td><td>${x.deliveryCount||0} (${money(deliveryBonus(x))})</td><td>${money(shiftEarnings(x))}</td><td><button class="secondary" onclick="editShift('${x.id}')">Edit</button> <button class="danger" onclick="delItem('shifts','${x.id}')">Delete</button></td></tr>`).join('')}</table><div class="mobile-records">${arr.map(x=>`<article class="record-card"><div class="record-head"><div><div class="record-title">${esc(x.store||'Personal')}</div><small>${x.date} · ${esc(x.type)}</small></div><div class="record-amount">${money(shiftEarnings(x))}</div></div><div class="record-meta"><div><small>Working time</small>${x.start}–${x.end}</div><div><small>Hours</small>${x.hours.toFixed(2)}</div><div><small>Deliveries</small>${x.deliveryCount||0}</div><div><small>Delivery bonus</small>${money(deliveryBonus(x))}</div></div><div class="record-actions"><button class="secondary" onclick="editShift('${x.id}')">Edit shift</button><button class="danger" onclick="delItem('shifts','${x.id}')">Delete</button></div></article>`).join('')}</div>`:'<div class="empty">No shifts yet.</div>';
 }
+const csvCell=value=>'"'+String(value??'').replace(/"/g,'""')+'"';
+function downloadShifts(rows,filename){
+ if(!rows.length)return alert('There are no shifts to download.');
+ let headers=['Date','Store / employer','Type','Start time','End time','Hours','Hourly rate','Deliveries','Delivery bonus','Earnings','Notes'];
+ let records=rows.map(x=>[x.date,x.store||'Personal',x.type,x.start,x.end,(+x.hours||0).toFixed(2),(+x.rate||0).toFixed(2),+x.deliveryCount||0,deliveryBonus(x).toFixed(2),shiftEarnings(x).toFixed(2),x.notes||'']);
+ let csv='\uFEFF'+[headers,...records].map(row=>row.map(csvCell).join(',')).join('\r\n');
+ let url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),link=document.createElement('a');
+ link.href=url;link.download=filename;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function safeFilename(value){return String(value||'all').trim().replace(/[^a-z0-9_-]+/gi,'-').replace(/^-|-$/g,'')||'all'}
 function renderExpenses(){
  let m=$('expenseMonth').value||'', arr=data.expenses.filter(x=>!m||x.date.startsWith(m)).sort((a,b)=>b.date.localeCompare(a.date));
  $('expenseTable').innerHTML=arr.length?`<table><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th></th></tr>${arr.map(x=>`<tr><td>${x.date}</td><td>${x.category}</td><td>${x.description||''}</td><td class="negative">-${money(x.amount)}</td><td><button class="secondary" onclick="editExpense('${x.id}')">Edit</button> <button class="danger" onclick="delItem('expenses','${x.id}')">Delete</button></td></tr>`).join('')}</table>`:'<div class="empty">No expenses yet.</div>';
@@ -252,6 +266,8 @@ function editExpense(i){let x=data.expenses.find(y=>y.id===i);$('expenseId').val
 function editPayment(i){let x=data.payments.find(y=>y.id===i);$('paymentId').value=x.id;[['paymentDate',x.date],['paymentStore',x.store||'Unassigned'],['paymentType',x.type],['paymentAmount',x.amount],['paymentReference',x.reference]].forEach(([a,b])=>$(a).value=b);document.querySelector('[data-page="payments"]').click()}
 function delItem(type,i){if(confirm('Delete this entry?')){data[type]=data[type].filter(x=>x.id!==i);save()}}
 ['dashMonth','shiftMonth','shiftFilter','shiftStoreFilter','expenseMonth','paymentMonth'].forEach(x=>$(x).addEventListener('change',render));
+$('downloadFilteredShifts').onclick=()=>downloadShifts(filteredShifts(),`shifts-${safeFilename($('shiftStoreFilter').value)}-${safeFilename($('shiftMonth').value)}.csv`);
+$('downloadAllShifts').onclick=()=>downloadShifts([...data.shifts].sort((a,b)=>b.date.localeCompare(a.date)),'shifts-all.csv');
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));$(b.dataset.page).classList.add('active');if(b.dataset.page==='settings')loadBackups();scrollTo({top:0,behavior:'smooth'})});
 $('profileToggle').onclick=e=>{e.stopPropagation();let menu=$('profileDropdown'),opening=menu.hidden;menu.hidden=!opening;$('profileToggle').setAttribute('aria-expanded',String(opening))};
 $('profileDropdown').onclick=e=>e.stopPropagation();document.addEventListener('click',()=>{$('profileDropdown').hidden=true;$('profileToggle').setAttribute('aria-expanded','false')});
