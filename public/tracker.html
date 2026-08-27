@@ -92,7 +92,7 @@ header .wrap{animation:heroIn .55s cubic-bezier(.22,1,.36,1) both}.page.active{a
 <div class="card"><div class="label">Personal earnings</div><div id="dashStore" class="money">€0.00</div></div>
 <div class="card"><div class="label">Delivery earnings</div><div id="dashDelivery" class="money">€0.00</div></div>
 <div class="card"><div class="label">Total expenses</div><div id="dashExpenses" class="money negative">€0.00</div></div>
-<div class="card"><div class="label">Net amount (earnings + payments − expenses)</div><div id="dashNet" class="money positive">€0.00</div></div>
+<div class="card"><div class="label">Net amount (earnings − expenses)</div><div id="dashNet" class="money positive">€0.00</div></div>
 <div class="card"><div class="label">Total amount without expenses</div><div id="dashGross" class="money">€0.00</div></div>
 </div>
 <div class="grid">
@@ -100,7 +100,7 @@ header .wrap{animation:heroIn .55s cubic-bezier(.22,1,.36,1) both}.page.active{a
 <div id="monthlySummary"></div></div>
 <div class="panel"><h2>Recent activity</h2><div id="recentActivity"></div></div>
 </div>
-<div class="panel"><h2>Earnings by store</h2><div id="storeEarnings"></div></div>
+<div class="panel"><h2>Earnings and payments by store</h2><div id="storeEarnings"></div></div>
 </section>
 
 <section id="shifts" class="page">
@@ -138,6 +138,7 @@ header .wrap{animation:heroIn .55s cubic-bezier(.22,1,.36,1) both}.page.active{a
 <div class="grid">
 <div class="panel"><h2>Record payment</h2><form id="paymentForm"><input type="hidden" id="paymentId">
 <div class="formgrid"><div><label>Payment date</label><input required type="date" id="paymentDate"></div>
+<div><label>Store / employer</label><input required id="paymentStore" list="paymentStoreOptions" placeholder="Select or enter a store"><datalist id="paymentStoreOptions"></datalist></div>
 <div><label>Type</label><select id="paymentType"><option>Salary</option><option>Delivery</option><option>Tips</option><option>Bonus</option><option>Other</option></select></div>
 <div><label>Amount (€)</label><input required type="number" min="0" step=".01" id="paymentAmount"></div>
 <div><label>Reference</label><input id="paymentReference" placeholder="e.g. August salary"></div></div>
@@ -169,7 +170,7 @@ const money=n=>(data.settings.currency||'€')+Number(n||0).toFixed(2);
 const today=new Date().toISOString().slice(0,10), month=today.slice(0,7);
 function normalize(raw){
  const d=raw&&typeof raw==='object'?raw:structuredClone(defaults);
- d.shifts=Array.isArray(d.shifts)?d.shifts:[];d.expenses=Array.isArray(d.expenses)?d.expenses:[];d.payments=Array.isArray(d.payments)?d.payments:[];
+ d.shifts=Array.isArray(d.shifts)?d.shifts:[];d.expenses=Array.isArray(d.expenses)?d.expenses:[];d.payments=Array.isArray(d.payments)?d.payments.map(x=>({...x,store:x.store||'Unassigned'})):[];
  d.settings={...defaults.settings,...(d.settings||{})};
  // Migrate the old free-form delivery amount without losing its value.
  d.shifts=d.shifts.map(x=>({...x,deliveryCount:Number.isFinite(+x.deliveryCount)?+x.deliveryCount:(+x.extra||0)/(+d.settings.deliveryRate||2)}));
@@ -207,19 +208,20 @@ function render(){
  const expenses=data.expenses.reduce((s,x)=>s+x.amount,0);
  const payments=data.payments.reduce((s,x)=>s+x.amount,0);
  $('dashStore').textContent=money(personal);$('dashDelivery').textContent=money(del);$('dashExpenses').textContent=money(expenses);
- $('dashNet').textContent=money(personal+payments-expenses);$('dashGross').textContent=money(personal+payments); $('currency').value=data.settings.currency; $('defaultRate').value=data.settings.defaultRate;$('deliveryRate').value=data.settings.deliveryRate;
+ $('dashNet').textContent=money(personal-expenses);$('dashGross').textContent=money(personal); $('currency').value=data.settings.currency; $('defaultRate').value=data.settings.defaultRate;$('deliveryRate').value=data.settings.deliveryRate;
  renderMonthly();renderStoreEarnings();renderShifts();renderExpenses();renderPayments();renderRecent();
 }
 function renderMonthly(){
  const m=$('dashMonth').value||month, sh=data.shifts.filter(x=>x.date.startsWith(m)), ex=data.expenses.filter(x=>x.date.startsWith(m)), pa=data.payments.filter(x=>x.date.startsWith(m));
  let personal=sh.reduce((s,x)=>s+shiftEarnings(x),0), del=sh.reduce((s,x)=>s+deliveryBonus(x),0), e=ex.reduce((s,x)=>s+x.amount,0), p=pa.reduce((s,x)=>s+x.amount,0);
- $('monthlySummary').innerHTML=`<div class="summaryline"><span>Total shift earnings</span><b>${money(personal)}</b></div><div class="summaryline"><span>Included delivery bonuses</span><b>${money(del)}</b></div><div class="summaryline"><span>Payments received</span><b>${money(p)}</b></div><div class="summaryline"><span>Total amount without expenses</span><b>${money(personal+p)}</b></div><div class="summaryline"><span>Expenses</span><b class="negative">-${money(e)}</b></div><div class="summaryline"><span>Net amount</span><b class="positive">${money(personal+p-e)}</b></div>`;
+ $('monthlySummary').innerHTML=`<div class="summaryline"><span>Total shift earnings</span><b>${money(personal)}</b></div><div class="summaryline"><span>Included delivery bonuses</span><b>${money(del)}</b></div><div class="summaryline"><span>Payments received (not added again)</span><b>${money(p)}</b></div><div class="summaryline"><span>Total amount without expenses</span><b>${money(personal)}</b></div><div class="summaryline"><span>Expenses</span><b class="negative">-${money(e)}</b></div><div class="summaryline"><span>Net amount</span><b class="positive">${money(personal-e)}</b></div>`;
 }
 function renderStoreEarnings(){
- const m=$('dashMonth').value||month, totals={};
+ const m=$('dashMonth').value||month, totals={},paid={};
  data.shifts.filter(x=>x.date.startsWith(m)).forEach(x=>{let store=x.store||'Personal';totals[store]=(totals[store]||0)+shiftEarnings(x)});
- let rows=Object.entries(totals).sort((a,b)=>b[1]-a[1]);
- $('storeEarnings').innerHTML=rows.length?`<div class="store-cards">${rows.map(([store,total])=>`<div class="store-card"><span>${store}</span><b>${money(total)}</b></div>`).join('')}</div>`:'<div class="empty">No store earnings for this month.</div>';
+ data.payments.filter(x=>x.date.startsWith(m)).forEach(x=>{let store=x.store||'Unassigned';paid[store]=(paid[store]||0)+x.amount});
+ let stores=[...new Set([...Object.keys(totals),...Object.keys(paid)])],rows=stores.map(store=>[store,totals[store]||0,paid[store]||0]).sort((a,b)=>b[1]-a[1]);
+ $('storeEarnings').innerHTML=rows.length?`<div class="store-cards">${rows.map(([store,total,received])=>`<div class="store-card"><span>${esc(store)}</span><b>${money(total)}</b><small>Paid: ${money(received)}</small></div>`).join('')}</div>`:'<div class="empty">No store earnings or payments for this month.</div>';
 }
 function renderShifts(){
  let m=$('shiftMonth').value||'', f=$('shiftFilter').value, sf=$('shiftStoreFilter').value;
@@ -234,7 +236,8 @@ function renderExpenses(){
 }
 function renderPayments(){
  let m=$('paymentMonth').value||'', arr=data.payments.filter(x=>!m||x.date.startsWith(m)).sort((a,b)=>b.date.localeCompare(a.date));
- $('paymentTable').innerHTML=arr.length?`<table class="desktop-table"><tr><th>Date</th><th>Type</th><th>Reference</th><th>Amount</th><th></th></tr>${arr.map(x=>`<tr><td>${x.date}</td><td>${esc(x.type)}</td><td>${esc(x.reference||'')}</td><td class="positive">${money(x.amount)}</td><td><button class="secondary" onclick="editPayment('${x.id}')">Edit</button> <button class="danger" onclick="delItem('payments','${x.id}')">Delete</button></td></tr>`).join('')}</table><div class="mobile-records">${arr.map(x=>`<article class="record-card"><div class="record-head"><div><div class="record-title">${esc(x.type)}</div><small>${x.date}</small></div><div class="record-amount">${money(x.amount)}</div></div><div class="record-meta"><div class="full"><small>Reference</small>${esc(x.reference||'No reference')}</div></div><div class="record-actions"><button class="secondary" onclick="editPayment('${x.id}')">Edit payment</button><button class="danger" onclick="delItem('payments','${x.id}')">Delete</button></div></article>`).join('')}</div>`:'<div class="empty">No payments yet.</div>';
+ $('paymentStoreOptions').innerHTML=[...new Set(data.shifts.map(x=>x.store||'Personal'))].sort().map(store=>`<option value="${esc(store)}"></option>`).join('');
+ $('paymentTable').innerHTML=arr.length?`<table class="desktop-table"><tr><th>Date</th><th>Store / employer</th><th>Type</th><th>Reference</th><th>Amount</th><th></th></tr>${arr.map(x=>`<tr><td>${x.date}</td><td>${esc(x.store||'Unassigned')}</td><td>${esc(x.type)}</td><td>${esc(x.reference||'')}</td><td class="positive">${money(x.amount)}</td><td><button class="secondary" onclick="editPayment('${x.id}')">Edit</button> <button class="danger" onclick="delItem('payments','${x.id}')">Delete</button></td></tr>`).join('')}</table><div class="mobile-records">${arr.map(x=>`<article class="record-card"><div class="record-head"><div><div class="record-title">${esc(x.store||'Unassigned')}</div><small>${x.date} · ${esc(x.type)}</small></div><div class="record-amount">${money(x.amount)}</div></div><div class="record-meta"><div class="full"><small>Reference</small>${esc(x.reference||'No reference')}</div></div><div class="record-actions"><button class="secondary" onclick="editPayment('${x.id}')">Edit payment</button><button class="danger" onclick="delItem('payments','${x.id}')">Delete</button></div></article>`).join('')}</div>`:'<div class="empty">No payments yet.</div>';
 }
 function renderRecent(){
  let a=[...data.shifts.map(x=>({date:x.date,text:`${x.store||'Personal'}: ${x.type} shift ${x.start}–${x.end}`,amount:shiftEarnings(x)})),...data.expenses.map(x=>({date:x.date,text:`Expense: ${x.category}`,amount:-x.amount})),...data.payments.map(x=>({date:x.date,text:`Payment: ${x.type}`,amount:x.amount}))].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
@@ -243,10 +246,10 @@ function renderRecent(){
 function id(){return Date.now().toString(36)+Math.random().toString(36).slice(2)}
 $('shiftForm').onsubmit=e=>{e.preventDefault();let hid=$('shiftId').value,x={id:hid||id(),date:$('shiftDate').value,type:$('shiftType').value,store:$('shiftStore').value.trim()||'Personal',start:$('start').value,end:$('end').value,rate:+$('rate').value,deliveryCount:+$('deliveryCount').value||0,notes:$('shiftNotes').value};x.hours=hours(x.start,x.end);if(hid)data.shifts=data.shifts.map(y=>y.id===hid?x:y);else data.shifts.push(x);e.target.reset();$('shiftId').value='';$('rate').value=data.settings.defaultRate;save()};
 $('expenseForm').onsubmit=e=>{e.preventDefault();let hid=$('expenseId').value,x={id:hid||id(),date:$('expenseDate').value,category:$('expenseCategory').value,amount:+$('expenseAmount').value,method:$('expenseMethod').value,description:$('expenseDescription').value};if(hid)data.expenses=data.expenses.map(y=>y.id===hid?x:y);else data.expenses.push(x);e.target.reset();$('expenseId').value='';save()};
-$('paymentForm').onsubmit=e=>{e.preventDefault();let hid=$('paymentId').value,x={id:hid||id(),date:$('paymentDate').value,type:$('paymentType').value,amount:+$('paymentAmount').value,reference:$('paymentReference').value};if(hid)data.payments=data.payments.map(y=>y.id===hid?x:y);else data.payments.push(x);e.target.reset();$('paymentId').value='';save()};
+$('paymentForm').onsubmit=e=>{e.preventDefault();let hid=$('paymentId').value,x={id:hid||id(),date:$('paymentDate').value,store:$('paymentStore').value.trim(),type:$('paymentType').value,amount:+$('paymentAmount').value,reference:$('paymentReference').value};if(hid)data.payments=data.payments.map(y=>y.id===hid?x:y);else data.payments.push(x);e.target.reset();$('paymentId').value='';save()};
 function editShift(i){let x=data.shifts.find(y=>y.id===i);$('shiftId').value=x.id;['shiftDate','shiftType','shiftStore','start','end','rate','deliveryCount','shiftNotes'].forEach((k,j)=>$(k).value=[x.date,x.type,x.store||'Personal',x.start,x.end,x.rate,x.deliveryCount||0,x.notes][j]);document.querySelector('[data-page="shifts"]').click()}
 function editExpense(i){let x=data.expenses.find(y=>y.id===i);$('expenseId').value=x.id;[['expenseDate',x.date],['expenseCategory',x.category],['expenseAmount',x.amount],['expenseMethod',x.method],['expenseDescription',x.description]].forEach(([a,b])=>$(a).value=b);document.querySelector('[data-page="expenses"]').click()}
-function editPayment(i){let x=data.payments.find(y=>y.id===i);$('paymentId').value=x.id;[['paymentDate',x.date],['paymentType',x.type],['paymentAmount',x.amount],['paymentReference',x.reference]].forEach(([a,b])=>$(a).value=b);document.querySelector('[data-page="payments"]').click()}
+function editPayment(i){let x=data.payments.find(y=>y.id===i);$('paymentId').value=x.id;[['paymentDate',x.date],['paymentStore',x.store||'Unassigned'],['paymentType',x.type],['paymentAmount',x.amount],['paymentReference',x.reference]].forEach(([a,b])=>$(a).value=b);document.querySelector('[data-page="payments"]').click()}
 function delItem(type,i){if(confirm('Delete this entry?')){data[type]=data[type].filter(x=>x.id!==i);save()}}
 ['dashMonth','shiftMonth','shiftFilter','shiftStoreFilter','expenseMonth','paymentMonth'].forEach(x=>$(x).addEventListener('change',render));
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));$(b.dataset.page).classList.add('active');if(b.dataset.page==='settings')loadBackups();scrollTo({top:0,behavior:'smooth'})});
