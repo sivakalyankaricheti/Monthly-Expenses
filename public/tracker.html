@@ -144,7 +144,7 @@ header .wrap{animation:heroIn .55s cubic-bezier(.22,1,.36,1) both}.page.active{a
 <div><label>Reference</label><input id="paymentReference" placeholder="e.g. August salary"></div></div>
 <div class="actions"><button class="primary">Save payment</button><button class="secondary" type="button" id="paymentReset">Clear</button></div></form>
 <p class="hint">Use this for money actually paid to you. Delivery shift earnings can also be tracked in the shift section.</p></div>
-<div class="panel"><h2>Payments received</h2><div class="filters"><input type="month" id="paymentMonth"></div><div id="paymentTable"></div></div>
+<div class="panel"><h2>Payments received</h2><div class="filters"><input type="month" id="paymentMonth"></div><div id="paymentSummary"></div><div id="paymentTable"></div></div>
 </div>
 </section>
 
@@ -206,20 +206,24 @@ function unpaidEarnings(shifts,payments){
  const earned={},paid={};shifts.forEach(x=>{let key=storeKey(x.store||'Personal');earned[key]=(earned[key]||0)+shiftEarnings(x)});payments.forEach(x=>{let key=storeKey(x.store);if(key&&key!=='unassigned')paid[key]=(paid[key]||0)+(+x.amount||0)});
  return Object.keys(earned).reduce((sum,key)=>sum+Math.max(0,earned[key]-(paid[key]||0)),0);
 }
+function standalonePayments(shifts,payments){
+ const shiftStores=new Set(shifts.map(x=>storeKey(x.store||'Personal')));
+ return payments.reduce((sum,x)=>sum+(shiftStores.has(storeKey(x.store))?0:(+x.amount||0)),0);
+}
 function initDates(){['shiftDate','expenseDate','paymentDate'].forEach(x=>$(x).value=today);['dashMonth','shiftMonth','expenseMonth','paymentMonth'].forEach(x=>$(x).value=month);$('rate').value=data.settings.defaultRate}
 function render(){
  const personal=data.shifts.reduce((s,x)=>s+shiftEarnings(x),0),unpaid=unpaidEarnings(data.shifts,data.payments);
  const del=data.shifts.reduce((s,x)=>s+deliveryBonus(x),0);
  const expenses=data.expenses.reduce((s,x)=>s+x.amount,0);
- const payments=data.payments.reduce((s,x)=>s+x.amount,0);
+ const otherPayments=standalonePayments(data.shifts,data.payments),gross=personal+otherPayments;
  $('dashStore').textContent=money(unpaid);$('dashDelivery').textContent=money(del);$('dashExpenses').textContent=money(expenses);
- $('dashNet').textContent=money(personal-expenses);$('dashGross').textContent=money(personal); $('currency').value=data.settings.currency; $('defaultRate').value=data.settings.defaultRate;$('deliveryRate').value=data.settings.deliveryRate;
+ $('dashNet').textContent=money(gross-expenses);$('dashGross').textContent=money(gross); $('currency').value=data.settings.currency; $('defaultRate').value=data.settings.defaultRate;$('deliveryRate').value=data.settings.deliveryRate;
  renderMonthly();renderStoreEarnings();renderShifts();renderExpenses();renderPayments();renderRecent();
 }
 function renderMonthly(){
  const m=$('dashMonth').value||month, sh=data.shifts.filter(x=>x.date.startsWith(m)), ex=data.expenses.filter(x=>x.date.startsWith(m)), pa=data.payments.filter(x=>x.date.startsWith(m));
- let personal=sh.reduce((s,x)=>s+shiftEarnings(x),0), del=sh.reduce((s,x)=>s+deliveryBonus(x),0), e=ex.reduce((s,x)=>s+x.amount,0), p=pa.reduce((s,x)=>s+x.amount,0);
- $('monthlySummary').innerHTML=`<div class="summaryline"><span>Total shift earnings</span><b>${money(personal)}</b></div><div class="summaryline"><span>Unpaid earnings after store payments</span><b>${money(unpaidEarnings(sh,pa))}</b></div><div class="summaryline"><span>Included delivery bonuses</span><b>${money(del)}</b></div><div class="summaryline"><span>Payments received (settlement only)</span><b>${money(p)}</b></div><div class="summaryline"><span>Total amount without expenses</span><b>${money(personal)}</b></div><div class="summaryline"><span>Expenses</span><b class="negative">-${money(e)}</b></div><div class="summaryline"><span>Net amount</span><b class="positive">${money(personal-e)}</b></div>`;
+ let personal=sh.reduce((s,x)=>s+shiftEarnings(x),0),del=sh.reduce((s,x)=>s+deliveryBonus(x),0),e=ex.reduce((s,x)=>s+x.amount,0),p=pa.reduce((s,x)=>s+x.amount,0),other=standalonePayments(sh,pa),gross=personal+other;
+ $('monthlySummary').innerHTML=`<div class="summaryline"><span>Total shift earnings</span><b>${money(personal)}</b></div><div class="summaryline"><span>Unpaid earnings after store payments</span><b>${money(unpaidEarnings(sh,pa))}</b></div><div class="summaryline"><span>Included delivery bonuses</span><b>${money(del)}</b></div><div class="summaryline"><span>Payments received</span><b>${money(p)}</b></div><div class="summaryline"><span>Other payments added to total</span><b>${money(other)}</b></div><div class="summaryline"><span>Total amount without expenses</span><b>${money(gross)}</b></div><div class="summaryline"><span>Expenses</span><b class="negative">-${money(e)}</b></div><div class="summaryline"><span>Net amount</span><b class="positive">${money(gross-e)}</b></div>`;
 }
 function renderStoreEarnings(){
  const m=$('dashMonth').value||month,totals={},paid={},names={};
@@ -248,8 +252,9 @@ function renderExpenses(){
  $('expenseTable').innerHTML=arr.length?`<table><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th></th></tr>${arr.map(x=>`<tr><td>${x.date}</td><td>${x.category}</td><td>${x.description||''}</td><td class="negative">-${money(x.amount)}</td><td><button class="secondary" onclick="editExpense('${x.id}')">Edit</button> <button class="danger" onclick="delItem('expenses','${x.id}')">Delete</button></td></tr>`).join('')}</table>`:'<div class="empty">No expenses yet.</div>';
 }
 function renderPayments(){
- let m=$('paymentMonth').value||'', arr=data.payments.filter(x=>!m||x.date.startsWith(m)).sort((a,b)=>b.date.localeCompare(a.date));
+ let m=$('paymentMonth').value||'',arr=data.payments.filter(x=>!m||x.date.startsWith(m)).sort((a,b)=>b.date.localeCompare(a.date)),sh=data.shifts.filter(x=>!m||x.date.startsWith(m)),ex=data.expenses.filter(x=>!m||x.date.startsWith(m)),shiftTotal=sh.reduce((s,x)=>s+shiftEarnings(x),0),other=standalonePayments(sh,arr),net=shiftTotal+other-ex.reduce((s,x)=>s+x.amount,0);
  $('paymentStoreOptions').innerHTML=[...new Set(data.shifts.map(x=>x.store||'Personal'))].sort().map(store=>`<option value="${esc(store)}"></option>`).join('');
+ $('paymentSummary').innerHTML=`<div class="summaryline"><span>Total payments received</span><b>${money(arr.reduce((s,x)=>s+x.amount,0))}</b></div><div class="summaryline"><span>Payments added to total</span><b>${money(other)}</b></div><div class="summaryline"><span>Net amount</span><b class="positive">${money(net)}</b></div>`;
  $('paymentTable').innerHTML=arr.length?`<table class="desktop-table"><tr><th>Date</th><th>Store / employer</th><th>Type</th><th>Reference</th><th>Amount</th><th></th></tr>${arr.map(x=>`<tr><td>${x.date}</td><td>${esc(x.store||'Unassigned')}</td><td>${esc(x.type)}</td><td>${esc(x.reference||'')}</td><td class="positive">${money(x.amount)}</td><td><button class="secondary" onclick="editPayment('${x.id}')">Edit</button> <button class="danger" onclick="delItem('payments','${x.id}')">Delete</button></td></tr>`).join('')}</table><div class="mobile-records">${arr.map(x=>`<article class="record-card"><div class="record-head"><div><div class="record-title">${esc(x.store||'Unassigned')}</div><small>${x.date} · ${esc(x.type)}</small></div><div class="record-amount">${money(x.amount)}</div></div><div class="record-meta"><div class="full"><small>Reference</small>${esc(x.reference||'No reference')}</div></div><div class="record-actions"><button class="secondary" onclick="editPayment('${x.id}')">Edit payment</button><button class="danger" onclick="delItem('payments','${x.id}')">Delete</button></div></article>`).join('')}</div>`:'<div class="empty">No payments yet.</div>';
 }
 function renderRecent(){
