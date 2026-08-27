@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { randomBytes, randomUUID, createHash, pbkdf2 as pbkdf2Callback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import pg from 'pg';
+import ExcelJS from 'exceljs';
 
 const { Pool } = pg;
 const pbkdf2 = promisify(pbkdf2Callback);
@@ -32,6 +33,22 @@ const cookieToken = req => (req.headers.cookie || '').split(';').map(x=>x.trim()
 const send = (res,status,body,headers={}) => { res.writeHead(status,{'Content-Type':'application/json; charset=utf-8',...headers}); res.end(JSON.stringify(body)); };
 const body = async req => { const chunks=[]; for await (const chunk of req) chunks.push(chunk); return JSON.parse(Buffer.concat(chunks).toString() || '{}'); };
 const setCookie = (token,maxAge=2592000) => `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+const safeFilename = value => String(value||'all').trim().replace(/[^a-z0-9_-]+/gi,'-').replace(/^-|-$/g,'')||'all';
+async function shiftWorkbook(shifts,deliveryRate){
+  const workbook=new ExcelJS.Workbook(),sheet=workbook.addWorksheet('Shifts',{views:[{state:'frozen',ySplit:1}]});
+  workbook.creator='Part Time Earnings';workbook.created=new Date();
+  const headers=['Date','Store / employer','Type','Start time','End time','Hours','Hourly rate','Deliveries','Delivery bonus','Earnings','Notes'];
+  const rows=shifts.map((x,index)=>{
+    const row=index+2,hours=Number(x.hours)||0,rate=Number(x.rate)||0,deliveries=Number(x.deliveryCount)||0,bonus=deliveries*deliveryRate,earnings=hours*rate+bonus;
+    return [new Date(`${x.date}T00:00:00`),x.store||'Personal',x.type||'',x.start||'',x.end||'',hours,rate,deliveries,{formula:`H${row}*${deliveryRate}`,result:bonus},{formula:`F${row}*G${row}+I${row}`,result:earnings},x.notes||''];
+  });
+  sheet.addTable({name:'ShiftData',ref:'A1',headerRow:true,totalsRow:false,style:{theme:'TableStyleMedium4',showRowStripes:true},columns:headers.map(name=>({name,filterButton:true})),rows});
+  sheet.columns.forEach((column,index)=>{column.width=[13,24,14,12,12,11,14,12,16,14,32][index]});
+  sheet.getColumn(1).numFmt='yyyy-mm-dd';sheet.getColumn(6).numFmt='0.00';sheet.getColumn(7).numFmt='€#,##0.00';sheet.getColumn(8).numFmt='0';sheet.getColumn(9).numFmt='€#,##0.00';sheet.getColumn(10).numFmt='€#,##0.00';
+  sheet.getRow(1).height=24;sheet.getRow(1).alignment={vertical:'middle'};sheet.getColumn(11).alignment={wrapText:true,vertical:'top'};
+  sheet.pageSetup={orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,paperSize:9,margins:{left:0.25,right:0.25,top:0.5,bottom:0.5,header:0.2,footer:0.2},printTitlesRow:'1:1'};
+  return workbook.xlsx.writeBuffer();
+}
 
 async function initDb(){
   await pool.query(`CREATE TABLE IF NOT EXISTS users(user_id text PRIMARY KEY,email text UNIQUE NOT NULL,display_name text,role text NOT NULL DEFAULT 'user',status text NOT NULL DEFAULT 'active',created_at timestamptz NOT NULL,last_seen_at timestamptz NOT NULL,password_hash text,password_salt text);
@@ -72,6 +89,15 @@ async function api(req,res,path){
   if(path==='/api/account/profile'&&req.method==='PATCH'){ const b=await body(req),name=(b.displayName||'').trim(),phone=(b.phone||'').trim(),address=(b.address||'').trim(),city=(b.city||'').trim(); if(name.length<2||name.length>80||phone.length>30||address.length>200||city.length>80)return send(res,400,{error:'Check the profile details and try again.'}); await pool.query('UPDATE users SET display_name=$1,phone=$2,address=$3,city=$4 WHERE user_id=$5',[name,phone,address,city,user.user_id]); return send(res,200,{ok:true,user:{...publicUser,displayName:name,phone,address,city}}); }
   if(path==='/api/data'&&req.method==='GET'){ if(user.role==='admin')return send(res,200,{data:null,updatedAt:null,user:publicUser}); const row=(await pool.query('SELECT * FROM tracker_state WHERE user_id=$1',[user.user_id])).rows[0]; return send(res,200,{data:row?.data||null,updatedAt:row?.updated_at||null,user:publicUser}); }
   if(path==='/api/data'&&req.method==='POST'){ if(user.role==='admin')return send(res,403,{error:'Administrator accounts manage users only.'}); const b=await body(req); if(!Array.isArray(b.shifts)||!Array.isArray(b.expenses)||!Array.isArray(b.payments))return send(res,400,{error:'Invalid tracker data.'}); const client=await pool.connect(); try{await client.query('BEGIN');await client.query('INSERT INTO tracker_state_history(user_id,data) SELECT user_id,data FROM tracker_state WHERE user_id=$1 AND data IS DISTINCT FROM $2::jsonb',[user.user_id,b]);await client.query('INSERT INTO tracker_state VALUES($1,$2,now()) ON CONFLICT(user_id) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at',[user.user_id,b]);await client.query(`DELETE FROM tracker_state_history WHERE user_id=$1 AND id NOT IN (SELECT id FROM tracker_state_history WHERE user_id=$1 ORDER BY created_at DESC LIMIT 30)`,[user.user_id]);await client.query('COMMIT')}catch(error){await client.query('ROLLBACK');throw error}finally{client.release()} return send(res,200,{ok:true,updatedAt:new Date().toISOString()}); }
+  if(path==='/api/shifts/export'&&req.method==='POST'){
+    if(user.role==='admin')return send(res,403,{error:'User account required.'});
+    const filters=await body(req),state=(await pool.query('SELECT data FROM tracker_state WHERE user_id=$1',[user.user_id])).rows[0]?.data||seedData;
+    let shifts=Array.isArray(state.shifts)?state.shifts:[];
+    if(!filters.all)shifts=shifts.filter(x=>(!filters.month||x.date?.startsWith(filters.month))&&(!filters.type||x.type===filters.type)&&(!filters.store||(x.store||'Personal')===filters.store));
+    shifts.sort((a,b)=>(b.date||'').localeCompare(a.date||''));if(!shifts.length)return send(res,400,{error:'There are no shifts to download.'});
+    const file=await shiftWorkbook(shifts,Number(state.settings?.deliveryRate)||0),suffix=filters.all?'all':`${safeFilename(filters.store)}-${safeFilename(filters.month)}`;
+    res.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':`attachment; filename="shifts-${suffix}.xlsx"`,'Content-Length':file.byteLength});return res.end(Buffer.from(file));
+  }
   if(path==='/api/backups'&&req.method==='GET'){ if(user.role==='admin')return send(res,403,{error:'User account required.'}); const rows=(await pool.query(`SELECT id,created_at,data FROM tracker_state_history WHERE user_id=$1 ORDER BY created_at DESC LIMIT 30`,[user.user_id])).rows; return send(res,200,{backups:rows.map(x=>({id:String(x.id),createdAt:x.created_at,shiftCount:x.data.shifts?.length||0,paymentCount:x.data.payments?.length||0,expenseCount:x.data.expenses?.length||0}))}); }
   if(path==='/api/backups/restore'&&req.method==='POST'){ if(user.role==='admin')return send(res,403,{error:'User account required.'}); const b=await body(req),backup=(await pool.query('SELECT data FROM tracker_state_history WHERE id=$1 AND user_id=$2',[b.id,user.user_id])).rows[0]; if(!backup)return send(res,404,{error:'Saved version not found.'}); const client=await pool.connect(); try{await client.query('BEGIN');await client.query('INSERT INTO tracker_state_history(user_id,data) SELECT user_id,data FROM tracker_state WHERE user_id=$1',[user.user_id]);await client.query('UPDATE tracker_state SET data=$1,updated_at=now() WHERE user_id=$2',[backup.data,user.user_id]);await client.query('COMMIT')}catch(error){await client.query('ROLLBACK');throw error}finally{client.release()} return send(res,200,{ok:true,data:backup.data}); }
   if(path==='/api/admin/users'&&user.role==='admin'&&req.method==='GET'){ const rows=(await pool.query('SELECT user_id,email,display_name,phone,address,city,role,status,created_at,last_seen_at FROM users ORDER BY created_at DESC')).rows; return send(res,200,{users:rows}); }

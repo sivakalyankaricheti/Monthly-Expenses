@@ -28,7 +28,7 @@ button.danger{background:#fee2e2;color:#b91c1c;border:0;border-radius:7px;paddin
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:11px 8px;border-bottom:1px solid var(--border)}th{color:var(--muted);font-size:12px;text-transform:uppercase}
 .empty{color:var(--muted);padding:20px 0;text-align:center}.hint{color:var(--muted);font-size:13px;margin-top:8px}
-.filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}.filters>*{max-width:220px}
+.filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}.filters>*{max-width:220px}.filter-field{display:grid;gap:5px}.filter-field label{font-size:12px;color:var(--muted);font-weight:800}.filter-field input,.filter-field select{min-width:170px}
 .summaryline{display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:10px 0}.summaryline:last-child{border:0}
 .mobile-records{display:none}.record-card{border:1px solid var(--border);border-radius:14px;padding:14px;background:linear-gradient(145deg,#fff,#fafafa);box-shadow:0 3px 12px #1118270a;margin-bottom:11px}.record-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.record-title{font-weight:800;font-size:16px}.record-amount{font-size:18px;font-weight:900;color:var(--green)}.record-meta{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:12px 0}.record-meta div{background:#f3f4f6;border-radius:9px;padding:8px}.record-meta small{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;font-weight:800;margin-bottom:2px}.record-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.record-actions button{min-height:42px}.backup-list{display:grid;gap:10px;margin-top:14px}.backup-item{display:flex;justify-content:space-between;align-items:center;gap:12px;border:1px solid var(--border);padding:12px;border-radius:11px;background:#fafafa}.backup-item strong{display:block}.backup-item small{color:var(--muted)}.safety-note{background:#ecfdf5;border:1px solid #a7f3d0;border-radius:12px;padding:14px;color:#166534;line-height:1.5}
 @media(max-width:800px){header{padding:20px 16px}h1{font-size:24px}.cards{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.formgrid{grid-template-columns:1fr}.desktop-table{display:none}.mobile-records{display:block}.panel{padding:15px}main{margin:16px auto;padding:0 12px}input,select,textarea{font-size:16px;min-height:46px}.nav{padding:7px 8px}.nav button{padding:10px 12px}.filters>*{max-width:none;flex:1 1 140px}}
@@ -89,7 +89,7 @@ header .wrap{animation:heroIn .55s cubic-bezier(.22,1,.36,1) both}.page.active{a
 <main>
 <section id="dashboard" class="page active">
 <div class="cards">
-<div class="card"><div class="label">Personal earnings</div><div id="dashStore" class="money">€0.00</div></div>
+<div class="card"><div class="label">Unpaid personal earnings</div><div id="dashStore" class="money">€0.00</div></div>
 <div class="card"><div class="label">Delivery earnings</div><div id="dashDelivery" class="money">€0.00</div></div>
 <div class="card"><div class="label">Total expenses</div><div id="dashExpenses" class="money negative">€0.00</div></div>
 <div class="card"><div class="label">Net amount (earnings − expenses)</div><div id="dashNet" class="money positive">€0.00</div></div>
@@ -117,7 +117,7 @@ header .wrap{animation:heroIn .55s cubic-bezier(.22,1,.36,1) both}.page.active{a
 <div class="full"><label>Notes</label><textarea id="shiftNotes" placeholder="e.g. 8 deliveries, tips, changed timing..."></textarea></div>
 </div><div class="actions"><button class="primary" type="submit">Save shift</button><button class="secondary" type="button" id="shiftReset">Clear</button></div></form>
 <p class="hint">Shift earnings are hours × hourly rate, plus €2 for every delivery. Add the store/employer name to see separate earnings for each store.</p></div>
-<div class="panel"><h2>Your shifts</h2><div class="filters"><input type="month" id="shiftMonth"><select id="shiftFilter"><option value="">All types</option><option>Store</option><option>Delivery</option></select><select id="shiftStoreFilter"><option value="">All stores</option></select></div><div class="actions"><button class="secondary" type="button" id="downloadFilteredShifts">Download filtered CSV</button><button class="secondary" type="button" id="downloadAllShifts">Download all shifts CSV</button></div><p class="hint">Choose a store, month, or shift type above to download only those results.</p><div id="shiftTable"></div></div>
+<div class="panel"><h2>Your shifts</h2><div class="filters"><div class="filter-field"><label for="shiftMonth">Month</label><input type="month" id="shiftMonth"></div><div class="filter-field"><label for="shiftFilter">Shift type</label><select id="shiftFilter"><option value="">All types</option><option>Store</option><option>Delivery</option></select></div><div class="filter-field"><label for="shiftStoreFilter">Store / employer</label><select id="shiftStoreFilter"><option value="">All stores</option></select></div></div><div class="actions"><button class="secondary" type="button" id="downloadFilteredShifts">Download filtered Excel</button><button class="secondary" type="button" id="downloadAllShifts">Download all shifts Excel</button></div><p class="hint">The Excel file keeps filter buttons in its header and uses alternating green and white rows.</p><div id="shiftTable"></div></div>
 </div>
 </section>
 
@@ -201,27 +201,32 @@ function save(){dbWrite();localStorage.setItem(KEY,JSON.stringify(data));render(
 function hours(a,b){let [ah,am]=a.split(':').map(Number),[bh,bm]=b.split(':').map(Number);let x=bh+bm/60-(ah+am/60);return x<0?x+24:x}
 const deliveryBonus=x=>(+x.deliveryCount||0)*(+data.settings.deliveryRate||0);
 const shiftEarnings=x=>(+x.hours||0)*(+x.rate||0)+deliveryBonus(x);
+const storeKey=value=>String(value||'').trim().toLocaleLowerCase();
+function unpaidEarnings(shifts,payments){
+ const earned={},paid={};shifts.forEach(x=>{let key=storeKey(x.store||'Personal');earned[key]=(earned[key]||0)+shiftEarnings(x)});payments.forEach(x=>{let key=storeKey(x.store);if(key&&key!=='unassigned')paid[key]=(paid[key]||0)+(+x.amount||0)});
+ return Object.keys(earned).reduce((sum,key)=>sum+Math.max(0,earned[key]-(paid[key]||0)),0);
+}
 function initDates(){['shiftDate','expenseDate','paymentDate'].forEach(x=>$(x).value=today);['dashMonth','shiftMonth','expenseMonth','paymentMonth'].forEach(x=>$(x).value=month);$('rate').value=data.settings.defaultRate}
 function render(){
- const personal=data.shifts.reduce((s,x)=>s+shiftEarnings(x),0);
+ const personal=data.shifts.reduce((s,x)=>s+shiftEarnings(x),0),unpaid=unpaidEarnings(data.shifts,data.payments);
  const del=data.shifts.reduce((s,x)=>s+deliveryBonus(x),0);
  const expenses=data.expenses.reduce((s,x)=>s+x.amount,0);
  const payments=data.payments.reduce((s,x)=>s+x.amount,0);
- $('dashStore').textContent=money(personal);$('dashDelivery').textContent=money(del);$('dashExpenses').textContent=money(expenses);
+ $('dashStore').textContent=money(unpaid);$('dashDelivery').textContent=money(del);$('dashExpenses').textContent=money(expenses);
  $('dashNet').textContent=money(personal-expenses);$('dashGross').textContent=money(personal); $('currency').value=data.settings.currency; $('defaultRate').value=data.settings.defaultRate;$('deliveryRate').value=data.settings.deliveryRate;
  renderMonthly();renderStoreEarnings();renderShifts();renderExpenses();renderPayments();renderRecent();
 }
 function renderMonthly(){
  const m=$('dashMonth').value||month, sh=data.shifts.filter(x=>x.date.startsWith(m)), ex=data.expenses.filter(x=>x.date.startsWith(m)), pa=data.payments.filter(x=>x.date.startsWith(m));
  let personal=sh.reduce((s,x)=>s+shiftEarnings(x),0), del=sh.reduce((s,x)=>s+deliveryBonus(x),0), e=ex.reduce((s,x)=>s+x.amount,0), p=pa.reduce((s,x)=>s+x.amount,0);
- $('monthlySummary').innerHTML=`<div class="summaryline"><span>Total shift earnings</span><b>${money(personal)}</b></div><div class="summaryline"><span>Included delivery bonuses</span><b>${money(del)}</b></div><div class="summaryline"><span>Payments received (not added again)</span><b>${money(p)}</b></div><div class="summaryline"><span>Total amount without expenses</span><b>${money(personal)}</b></div><div class="summaryline"><span>Expenses</span><b class="negative">-${money(e)}</b></div><div class="summaryline"><span>Net amount</span><b class="positive">${money(personal-e)}</b></div>`;
+ $('monthlySummary').innerHTML=`<div class="summaryline"><span>Total shift earnings</span><b>${money(personal)}</b></div><div class="summaryline"><span>Unpaid earnings after store payments</span><b>${money(unpaidEarnings(sh,pa))}</b></div><div class="summaryline"><span>Included delivery bonuses</span><b>${money(del)}</b></div><div class="summaryline"><span>Payments received (settlement only)</span><b>${money(p)}</b></div><div class="summaryline"><span>Total amount without expenses</span><b>${money(personal)}</b></div><div class="summaryline"><span>Expenses</span><b class="negative">-${money(e)}</b></div><div class="summaryline"><span>Net amount</span><b class="positive">${money(personal-e)}</b></div>`;
 }
 function renderStoreEarnings(){
- const m=$('dashMonth').value||month, totals={},paid={};
- data.shifts.filter(x=>x.date.startsWith(m)).forEach(x=>{let store=x.store||'Personal';totals[store]=(totals[store]||0)+shiftEarnings(x)});
- data.payments.filter(x=>x.date.startsWith(m)).forEach(x=>{let store=x.store||'Unassigned';paid[store]=(paid[store]||0)+x.amount});
- let stores=[...new Set([...Object.keys(totals),...Object.keys(paid)])],rows=stores.map(store=>[store,totals[store]||0,paid[store]||0]).sort((a,b)=>b[1]-a[1]);
- $('storeEarnings').innerHTML=rows.length?`<div class="store-cards">${rows.map(([store,total,received])=>`<div class="store-card"><span>${esc(store)}</span><b>${money(total)}</b><small>Paid: ${money(received)}</small></div>`).join('')}</div>`:'<div class="empty">No store earnings or payments for this month.</div>';
+ const m=$('dashMonth').value||month,totals={},paid={},names={};
+ data.shifts.filter(x=>x.date.startsWith(m)).forEach(x=>{let store=x.store||'Personal',key=storeKey(store);names[key]=store;totals[key]=(totals[key]||0)+shiftEarnings(x)});
+ data.payments.filter(x=>x.date.startsWith(m)).forEach(x=>{let store=x.store||'Unassigned',key=storeKey(store);names[key]=names[key]||store;paid[key]=(paid[key]||0)+x.amount});
+ let stores=[...new Set([...Object.keys(totals),...Object.keys(paid)])],rows=stores.map(key=>[names[key],totals[key]||0,paid[key]||0]).sort((a,b)=>b[1]-a[1]);
+ $('storeEarnings').innerHTML=rows.length?`<div class="store-cards">${rows.map(([store,total,received])=>`<div class="store-card"><span>${esc(store)}</span><b>${money(Math.max(0,total-received))}</b><small>Earned: ${money(total)} · Paid: ${money(received)}</small></div>`).join('')}</div>`:'<div class="empty">No store earnings or payments for this month.</div>';
 }
 function filteredShifts(){
  let m=$('shiftMonth').value||'',f=$('shiftFilter').value,sf=$('shiftStoreFilter').value;
@@ -232,18 +237,12 @@ function renderShifts(){
  let stores=[...new Set(data.shifts.map(x=>x.store||'Personal'))].sort();
  $('shiftStoreFilter').innerHTML='<option value="">All stores</option>'+stores.map(s=>`<option ${s===sf?'selected':''}>${s}</option>`).join('');
  let arr=filteredShifts();
- $('shiftTable').innerHTML=arr.length?`<table class="desktop-table"><tr><th>Date</th><th>Store / employer</th><th>Type</th><th>Time</th><th>Hours</th><th>Deliveries</th><th>Earnings</th><th></th></tr>${arr.map(x=>`<tr><td>${x.date}</td><td>${esc(x.store||'Personal')}</td><td>${esc(x.type)}</td><td>${x.start}–${x.end}</td><td>${x.hours.toFixed(2)}</td><td>${x.deliveryCount||0} (${money(deliveryBonus(x))})</td><td>${money(shiftEarnings(x))}</td><td><button class="secondary" onclick="editShift('${x.id}')">Edit</button> <button class="danger" onclick="delItem('shifts','${x.id}')">Delete</button></td></tr>`).join('')}</table><div class="mobile-records">${arr.map(x=>`<article class="record-card"><div class="record-head"><div><div class="record-title">${esc(x.store||'Personal')}</div><small>${x.date} · ${esc(x.type)}</small></div><div class="record-amount">${money(shiftEarnings(x))}</div></div><div class="record-meta"><div><small>Working time</small>${x.start}–${x.end}</div><div><small>Hours</small>${x.hours.toFixed(2)}</div><div><small>Deliveries</small>${x.deliveryCount||0}</div><div><small>Delivery bonus</small>${money(deliveryBonus(x))}</div></div><div class="record-actions"><button class="secondary" onclick="editShift('${x.id}')">Edit shift</button><button class="danger" onclick="delItem('shifts','${x.id}')">Delete</button></div></article>`).join('')}</div>`:'<div class="empty">No shifts yet.</div>';
+ $('shiftTable').innerHTML=arr.length?`<table class="desktop-table"><tr><th>Date</th><th>Store / employer</th><th>Type</th><th>Start</th><th>End</th><th>Hours</th><th>Rate</th><th>Deliveries</th><th>Earnings</th><th></th></tr>${arr.map(x=>`<tr><td>${x.date}</td><td>${esc(x.store||'Personal')}</td><td>${esc(x.type)}</td><td>${x.start}</td><td>${x.end}</td><td>${x.hours.toFixed(2)}</td><td>${money(x.rate)}</td><td>${x.deliveryCount||0} (${money(deliveryBonus(x))})</td><td>${money(shiftEarnings(x))}</td><td><button class="secondary" onclick="editShift('${x.id}')">Edit</button> <button class="danger" onclick="delItem('shifts','${x.id}')">Delete</button></td></tr>`).join('')}</table><div class="mobile-records">${arr.map(x=>`<article class="record-card"><div class="record-head"><div><div class="record-title">${esc(x.store||'Personal')}</div><small>${esc(x.type)}</small></div><div class="record-amount">${money(shiftEarnings(x))}</div></div><div class="record-meta"><div><small>Date</small>${x.date}</div><div><small>Start time</small>${x.start}</div><div><small>End time</small>${x.end}</div><div><small>Hours</small>${x.hours.toFixed(2)}</div><div><small>Deliveries</small>${x.deliveryCount||0}</div><div><small>Delivery bonus</small>${money(deliveryBonus(x))}</div></div><div class="record-actions"><button class="secondary" onclick="editShift('${x.id}')">Edit shift</button><button class="danger" onclick="delItem('shifts','${x.id}')">Delete</button></div></article>`).join('')}</div>`:'<div class="empty">No shifts yet.</div>';
 }
-const csvCell=value=>'"'+String(value??'').replace(/"/g,'""')+'"';
-function downloadShifts(rows,filename){
- if(!rows.length)return alert('There are no shifts to download.');
- let headers=['Date','Store / employer','Type','Start time','End time','Hours','Hourly rate','Deliveries','Delivery bonus','Earnings','Notes'];
- let records=rows.map(x=>[x.date,x.store||'Personal',x.type,x.start,x.end,(+x.hours||0).toFixed(2),(+x.rate||0).toFixed(2),+x.deliveryCount||0,deliveryBonus(x).toFixed(2),shiftEarnings(x).toFixed(2),x.notes||'']);
- let csv='\uFEFF'+[headers,...records].map(row=>row.map(csvCell).join(',')).join('\r\n');
- let url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),link=document.createElement('a');
- link.href=url;link.download=filename;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+async function downloadShifts(all){
+ let filters={all,month:$('shiftMonth').value||'',type:$('shiftFilter').value,store:$('shiftStoreFilter').value},response=await fetch('/api/shifts/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(filters)});
+ if(!response.ok){let result=await response.json().catch(()=>({}));return alert(result.error||'Unable to create the Excel file.')}let blob=await response.blob(),name=(response.headers.get('Content-Disposition')||'').match(/filename="([^"]+)"/)?.[1]||'shifts.xlsx',url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=name;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
-function safeFilename(value){return String(value||'all').trim().replace(/[^a-z0-9_-]+/gi,'-').replace(/^-|-$/g,'')||'all'}
 function renderExpenses(){
  let m=$('expenseMonth').value||'', arr=data.expenses.filter(x=>!m||x.date.startsWith(m)).sort((a,b)=>b.date.localeCompare(a.date));
  $('expenseTable').innerHTML=arr.length?`<table><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th></th></tr>${arr.map(x=>`<tr><td>${x.date}</td><td>${x.category}</td><td>${x.description||''}</td><td class="negative">-${money(x.amount)}</td><td><button class="secondary" onclick="editExpense('${x.id}')">Edit</button> <button class="danger" onclick="delItem('expenses','${x.id}')">Delete</button></td></tr>`).join('')}</table>`:'<div class="empty">No expenses yet.</div>';
@@ -266,8 +265,8 @@ function editExpense(i){let x=data.expenses.find(y=>y.id===i);$('expenseId').val
 function editPayment(i){let x=data.payments.find(y=>y.id===i);$('paymentId').value=x.id;[['paymentDate',x.date],['paymentStore',x.store||'Unassigned'],['paymentType',x.type],['paymentAmount',x.amount],['paymentReference',x.reference]].forEach(([a,b])=>$(a).value=b);document.querySelector('[data-page="payments"]').click()}
 function delItem(type,i){if(confirm('Delete this entry?')){data[type]=data[type].filter(x=>x.id!==i);save()}}
 ['dashMonth','shiftMonth','shiftFilter','shiftStoreFilter','expenseMonth','paymentMonth'].forEach(x=>$(x).addEventListener('change',render));
-$('downloadFilteredShifts').onclick=()=>downloadShifts(filteredShifts(),`shifts-${safeFilename($('shiftStoreFilter').value)}-${safeFilename($('shiftMonth').value)}.csv`);
-$('downloadAllShifts').onclick=()=>downloadShifts([...data.shifts].sort((a,b)=>b.date.localeCompare(a.date)),'shifts-all.csv');
+$('downloadFilteredShifts').onclick=()=>downloadShifts(false);
+$('downloadAllShifts').onclick=()=>downloadShifts(true);
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));$(b.dataset.page).classList.add('active');if(b.dataset.page==='settings')loadBackups();scrollTo({top:0,behavior:'smooth'})});
 $('profileToggle').onclick=e=>{e.stopPropagation();let menu=$('profileDropdown'),opening=menu.hidden;menu.hidden=!opening;$('profileToggle').setAttribute('aria-expanded',String(opening))};
 $('profileDropdown').onclick=e=>e.stopPropagation();document.addEventListener('click',()=>{$('profileDropdown').hidden=true;$('profileToggle').setAttribute('aria-expanded','false')});
