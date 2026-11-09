@@ -17,6 +17,10 @@ const pool = new Proxy({}, { get(_target, property) {
   if (!source) return undefined;
   if (requestClient && property === 'connect') return async () => ({ query: requestClient.query.bind(requestClient), release() {} });
   const value = source[property];
+  if (property === 'query' && typeof value === 'function') return (...args) => Promise.resolve(value.apply(source, args)).catch(error => {
+    const operation = String(args[0]?.text || args[0] || 'unknown query').trim().split(/\s+/).slice(0, 2).join(' ');
+    throw new Error(`Database query failed via ${requestClient ? 'Hyperdrive' : 'local pool'} (${operation}): ${error.message}`, { cause: error });
+  });
   return typeof value === 'function' ? value.bind(source) : value;
 } });
 export const withDatabaseClient = (client, callback) => databaseContext.run(client, callback);
