@@ -86,14 +86,19 @@ async function initDb(){
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS address text`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS city text`,
   ];
-  for (const statement of schemaStatements) await pool.query(statement);
-  await pool.query(`INSERT INTO users(user_id,email,display_name,role,status,created_at,last_seen_at,password_hash,password_salt) VALUES('platform-admin','admin@gmail.com','Administrator','admin','active',now(),now(),'fcd3757bb17aaf30a3570ab51c5144ab303d8f54d1c638e7d0647df7a3d86aab','75ab0b199fe826154a66984e93ff59e3') ON CONFLICT(email) DO UPDATE SET role='admin',status='active'`);
+  for (const [index, statement] of schemaStatements.entries()) {
+    try { await pool.query(statement); }
+    catch (error) { throw new Error(`Database schema statement ${index + 1} failed: ${error.message}`, { cause: error }); }
+  }
+  try { await pool.query(`INSERT INTO users(user_id,email,display_name,role,status,created_at,last_seen_at,password_hash,password_salt) VALUES('platform-admin','admin@gmail.com','Administrator','admin','active',now(),now(),'fcd3757bb17aaf30a3570ab51c5144ab303d8f54d1c638e7d0647df7a3d86aab','75ab0b199fe826154a66984e93ff59e3') ON CONFLICT(email) DO UPDATE SET role='admin',status='active'`); }
+  catch (error) { throw new Error(`Database administrator initialization failed: ${error.message}`, { cause: error }); }
   const owner='mzll6UGvqFvra8c1By5f2Vz9yBs4F1QHOLSFeQfyvy9LLEhmlm0f9a';
-  await pool.query(`INSERT INTO users(user_id,email,display_name,role,status,created_at,last_seen_at,password_hash,password_salt)
+  try { await pool.query(`INSERT INTO users(user_id,email,display_name,role,status,created_at,last_seen_at,password_hash,password_salt)
     VALUES($1,'kalyankaricheti@gmail.com','Sivakalyan','user','active','2026-08-23T15:11:51.245Z',now(),$2,$3)
     ON CONFLICT(email) DO UPDATE SET display_name='Sivakalyan',role='user',status='active',
       password_hash=COALESCE(users.password_hash,excluded.password_hash),password_salt=COALESCE(users.password_salt,excluded.password_salt)`,
-    [owner,'5de29c703abb8cdf75bd44e64b0de7040ed8973e27a56544cc26bc34fcc2aa9b','4f7e070ae0dc82837b5c5d73f8b40997']);
+    [owner,'5de29c703abb8cdf75bd44e64b0de7040ed8973e27a56544cc26bc34fcc2aa9b','4f7e070ae0dc82837b5c5d73f8b40997']); }
+  catch (error) { throw new Error(`Database owner initialization failed: ${error.message}`, { cause: error }); }
   const migrated=(await pool.query("SELECT 1 FROM app_migrations WHERE name='sites-full-user-import-v1'")).rowCount;
   if(!migrated){
     await pool.query(`INSERT INTO tracker_state(user_id,data,updated_at) VALUES($1,$2,'2026-08-23T16:22:30.418Z')
