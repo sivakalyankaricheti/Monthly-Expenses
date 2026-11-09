@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "part-time-earnings",
+  "main": "./cloudflare-worker.mjs",
+  "compatibility_date": "2026-11-09",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": true,
+  "triggers": {
+    "crons": ["0 3 * * *"]
+  }
+}

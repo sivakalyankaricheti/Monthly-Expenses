@@ -1,17 +1,16 @@
 import http from 'node:http';
-import { readFile } from 'node:fs/promises';
 import { randomBytes, randomUUID, createHash, pbkdf2 as pbkdf2Callback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
-import pg from 'pg';
+import { Pool, neonConfig } from '@neondatabase/serverless';
 import ExcelJS from 'exceljs';
 
-const { Pool } = pg;
+if (typeof WebSocket !== 'undefined') neonConfig.webSocketConstructor = WebSocket;
 const pbkdf2 = promisify(pbkdf2Callback);
 const port = Number(process.env.PORT || 3000);
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false } });
-const trackerHtml = await readFile(new URL('./public/tracker.html', import.meta.url));
-const loginBackground = await readFile(new URL('./public/images/login-pizza-background.png', import.meta.url));
-const privacyHtml = await readFile(new URL('./public/privacy.html', import.meta.url));
+let pool;
+let trackerHtml;
+let loginBackground;
+let privacyHtml;
 const SESSION_COOKIE = 'pizza_session';
 const seedData = {shifts:[
   {id:'csv-20260807-ajay',date:'2026-08-07',type:'Store',store:'Ajay',start:'19:00',end:'22:00',hours:3,rate:10,deliveryCount:0,notes:''},
@@ -34,6 +33,16 @@ const send = (res,status,body,headers={}) => { res.writeHead(status,{'Content-Ty
 const body = async req => { const chunks=[]; for await (const chunk of req) chunks.push(chunk); return JSON.parse(Buffer.concat(chunks).toString() || '{}'); };
 const setCookie = (token,maxAge=2592000) => `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
 const safeFilename = value => String(value||'all').trim().replace(/[^a-z0-9_-]+/gi,'-').replace(/^-|-$/g,'')||'all';
+
+export async function initializeRuntime({ databaseUrl, assets }) {
+  if (!databaseUrl) throw new Error('DATABASE_URL is required.');
+  pool = new Pool({ connectionString: databaseUrl, max: 3 });
+  trackerHtml = assets.trackerHtml;
+  loginBackground = assets.loginBackground;
+  privacyHtml = assets.privacyHtml;
+  await initDb();
+}
+
 async function shiftWorkbook(shifts,deliveryRate){
   const workbook=new ExcelJS.Workbook(),sheet=workbook.addWorksheet('Shifts',{views:[{state:'frozen',ySplit:1}]});
   workbook.creator='Part Time Earnings';workbook.created=new Date();
@@ -74,6 +83,12 @@ async function initDb(){
   }
 }
 
+export async function cleanupExpiredData(){
+  const backups=await pool.query("DELETE FROM tracker_state_history WHERE created_at < now() - interval '10 days'");
+  const inactive=await pool.query("DELETE FROM users WHERE role <> 'admin' AND last_seen_at < now() - interval '10 days'");
+  return {expiredBackups:backups.rowCount||0,expiredAccounts:inactive.rowCount||0};
+}
+
 async function createSession(userId){ const token=randomHex(); await pool.query('INSERT INTO sessions VALUES($1,$2,now(),now()+interval \'30 days\')',[hex(token),userId]); return token; }
 async function currentUser(req){ const token=cookieToken(req); if(!token) return null; const {rows}=await pool.query(`SELECT u.* FROM sessions s JOIN users u ON u.user_id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()`,[hex(token)]); if(!rows[0]||rows[0].status==='disabled') return null; await pool.query('UPDATE users SET last_seen_at=now() WHERE user_id=$1',[rows[0].user_id]); return rows[0]; }
 
@@ -81,14 +96,12 @@ async function api(req,res,path){
   if(path==='/api/cron/cleanup'&&req.method==='GET'){
     const secret=process.env.CRON_SECRET;
     if(!secret||req.headers.authorization!==`Bearer ${secret}`)return send(res,401,{error:'Unauthorized.'});
-    const backups=await pool.query("DELETE FROM tracker_state_history WHERE created_at < now() - interval '10 days'");
-    const inactive=await pool.query("DELETE FROM users WHERE role <> 'admin' AND last_seen_at < now() - interval '10 days'");
-    return send(res,200,{ok:true,expiredBackups:backups.rowCount||0,expiredAccounts:inactive.rowCount||0});
+    return send(res,200,{ok:true,...await cleanupExpiredData()});
   }
   if(path==='/api/account/register'&&req.method==='POST'){ const b=await body(req),email=(b.email||'').trim().toLowerCase(),name=(b.displayName||'').trim(),password=b.password||''; if(!/^\S+@\S+\.\S+$/.test(email)||name.length<2||password.length<8) return send(res,400,{error:'Enter a valid email, name, and password of at least 8 characters.'}); const found=(await pool.query('SELECT * FROM users WHERE email=$1',[email])).rows[0]; if(found?.password_hash)return send(res,409,{error:'An account with this email already exists. Use Sign in.'}); const id=found?.user_id||randomUUID(),salt=randomHex(16),hash=await hashPassword(password,salt); if(found)await pool.query("UPDATE users SET display_name=$1,password_hash=$2,password_salt=$3,status='active',role='user' WHERE user_id=$4",[name,hash,salt,id]); else await pool.query("INSERT INTO users(user_id,email,display_name,role,status,created_at,last_seen_at,password_hash,password_salt) VALUES($1,$2,$3,'user','active',now(),now(),$4,$5)",[id,email,name,hash,salt]); return send(res,201,{ok:true},{'Set-Cookie':setCookie(await createSession(id))}); }
   if(path==='/api/account/login'&&req.method==='POST'){ const b=await body(req),row=(await pool.query('SELECT * FROM users WHERE email=$1',[(b.email||'').trim().toLowerCase()])).rows[0]; const calculated=row?.password_salt?await hashPassword(b.password||'',row.password_salt):''; if(!row?.password_hash||calculated.length!==row.password_hash.length||!timingSafeEqual(Buffer.from(calculated),Buffer.from(row.password_hash)))return send(res,401,{error:'Incorrect email or password.'}); if(row.status==='disabled')return send(res,403,{error:'Your account has been disabled by an administrator.'}); return send(res,200,{ok:true},{'Set-Cookie':setCookie(await createSession(row.user_id))}); }
   if(path==='/api/account/logout'&&req.method==='POST'){ const token=cookieToken(req); if(token)await pool.query('DELETE FROM sessions WHERE token_hash=$1',[hex(token)]); return send(res,200,{ok:true},{'Set-Cookie':setCookie('',0)}); }
-  if(path==='/api/account/forgot-password'&&req.method==='POST'){ const b=await body(req),email=(b.email||'').trim().toLowerCase(),user=(await pool.query("SELECT * FROM users WHERE email=$1 AND status='active'",[email])).rows[0],message='If that email is registered, a password reset link will be sent.'; if(!user?.password_hash)return send(res,200,{message}); if(!process.env.RESEND_API_KEY||!process.env.MAIL_FROM)return send(res,503,{error:'Password reset email is not configured yet.'}); const token=randomHex(),tokenHash=hex(token); await pool.query('DELETE FROM password_reset_tokens WHERE user_id=$1',[user.user_id]); await pool.query("INSERT INTO password_reset_tokens VALUES($1,$2,now()+interval '30 minutes',NULL)",[tokenHash,user.user_id]); const publicBaseUrl=process.env.PUBLIC_BASE_URL||process.env.RENDER_EXTERNAL_URL||(process.env.WEBSITE_HOSTNAME?`https://${process.env.WEBSITE_HOSTNAME}`:`http://localhost:${port}`); const resetUrl=`${publicBaseUrl.replace(/\/$/,'')}/?reset=${token}`; const mail=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:`Bearer ${process.env.RESEND_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({from:process.env.MAIL_FROM,to:[email],subject:'Reset your Part Time Earnings password',html:`<p><a href="${resetUrl}">Reset password</a> (valid for 30 minutes)</p>`})}); if(!mail.ok)return send(res,500,{error:'Unable to send the reset email.'}); return send(res,200,{message}); }
+  if(path==='/api/account/forgot-password'&&req.method==='POST'){ const b=await body(req),email=(b.email||'').trim().toLowerCase(),user=(await pool.query("SELECT * FROM users WHERE email=$1 AND status='active'",[email])).rows[0],message='If that email is registered, a password reset link will be sent.'; if(!user?.password_hash)return send(res,200,{message}); if(!process.env.RESEND_API_KEY||!process.env.MAIL_FROM)return send(res,503,{error:'Password reset email is not configured yet.'}); const token=randomHex(),tokenHash=hex(token); await pool.query('DELETE FROM password_reset_tokens WHERE user_id=$1',[user.user_id]); await pool.query("INSERT INTO password_reset_tokens VALUES($1,$2,now()+interval '30 minutes',NULL)",[tokenHash,user.user_id]); const publicBaseUrl=process.env.PUBLIC_BASE_URL||(process.env.WEBSITE_HOSTNAME?`https://${process.env.WEBSITE_HOSTNAME}`:`http://localhost:${port}`); const resetUrl=`${publicBaseUrl.replace(/\/$/,'')}/?reset=${token}`; const mail=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:`Bearer ${process.env.RESEND_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({from:process.env.MAIL_FROM,to:[email],subject:'Reset your Part Time Earnings password',html:`<p><a href="${resetUrl}">Reset password</a> (valid for 30 minutes)</p>`})}); if(!mail.ok)return send(res,500,{error:'Unable to send the reset email.'}); return send(res,200,{message}); }
   if(path==='/api/account/reset-password'&&req.method==='POST'){ const b=await body(req); if(!b.token||!b.password||b.password.length<8)return send(res,400,{error:'Enter a password of at least 8 characters.'}); const row=(await pool.query('SELECT * FROM password_reset_tokens WHERE token_hash=$1 AND used_at IS NULL AND expires_at>now()',[hex(b.token)])).rows[0]; if(!row)return send(res,400,{error:'This reset link is invalid or expired.'}); const salt=randomHex(16); await pool.query('BEGIN'); try{await pool.query('UPDATE users SET password_hash=$1,password_salt=$2 WHERE user_id=$3',[await hashPassword(b.password,salt),salt,row.user_id]);await pool.query('UPDATE password_reset_tokens SET used_at=now() WHERE token_hash=$1',[hex(b.token)]);await pool.query('DELETE FROM sessions WHERE user_id=$1',[row.user_id]);await pool.query('COMMIT')}catch(e){await pool.query('ROLLBACK');throw e} return send(res,200,{ok:true}); }
   const user=await currentUser(req); if(!user)return send(res,401,{error:'Sign in required.'});
   const publicUser={userId:user.user_id,email:user.email,displayName:user.display_name||'',phone:user.phone||'',address:user.address||'',city:user.city||'',role:user.role,status:user.status};
@@ -112,5 +125,4 @@ async function api(req,res,path){
   return send(res,404,{error:'Not found.'});
 }
 
-await initDb();
-http.createServer(async(req,res)=>{ try{ const path=new URL(req.url,'http://localhost').pathname; if(path==='/health')return send(res,200,{ok:true}); if(path.startsWith('/api/'))return await api(req,res,path); if(path==='/'||path==='/tracker'||path==='/tracker.html'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(trackerHtml)} if(path==='/privacy'||path==='/privacy.html'||path==='/account-deletion'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(privacyHtml)} if(path==='/images/login-pizza-background.png'){res.writeHead(200,{'Content-Type':'image/png','Cache-Control':'public, max-age=31536000, immutable'});return res.end(loginBackground)} res.writeHead(404);res.end('Not found'); }catch(error){console.error(error);send(res,500,{error:'Server request failed.'})} }).listen(port,'0.0.0.0',()=>console.log(`Part Time Earnings listening on ${port}`));
+export const server=http.createServer(async(req,res)=>{ try{ const path=new URL(req.url,'http://localhost').pathname; if(path==='/health')return send(res,200,{ok:true}); if(path.startsWith('/api/'))return await api(req,res,path); if(path==='/'||path==='/tracker'||path==='/tracker.html'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(trackerHtml)} if(path==='/privacy'||path==='/privacy.html'||path==='/account-deletion'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(privacyHtml)} if(path==='/images/login-pizza-background.png'){res.writeHead(200,{'Content-Type':'image/png','Cache-Control':'public, max-age=31536000, immutable'});return res.end(loginBackground)} res.writeHead(404);res.end('Not found'); }catch(error){console.error(error);send(res,500,{error:'Server request failed.'})} });
