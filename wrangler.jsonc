@@ -4,6 +4,12 @@
   "main": "./cloudflare-worker.mjs",
   "compatibility_date": "2026-11-09",
   "compatibility_flags": ["nodejs_compat"],
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "6f17345216d34842af5dba34f2d260e2"
+    }
+  ],
   "workers_dev": true,
   "preview_urls": true,
   "triggers": {

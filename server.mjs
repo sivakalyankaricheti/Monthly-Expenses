@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { randomBytes, randomUUID, createHash, pbkdf2 as pbkdf2Callback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Pool, neonConfig } from '@neondatabase/serverless';
 import ExcelJS from 'exceljs';
 
@@ -8,7 +9,17 @@ if (typeof WebSocket !== 'undefined') neonConfig.webSocketConstructor = WebSocke
 neonConfig.poolQueryViaFetch = true;
 const pbkdf2 = promisify(pbkdf2Callback);
 const port = Number(process.env.PORT || 3000);
-let pool;
+let localPool;
+const databaseContext = new AsyncLocalStorage();
+const pool = new Proxy({}, { get(_target, property) {
+  const requestClient = databaseContext.getStore();
+  const source = requestClient || localPool;
+  if (!source) return undefined;
+  if (requestClient && property === 'connect') return async () => ({ query: requestClient.query.bind(requestClient), release() {} });
+  const value = source[property];
+  return typeof value === 'function' ? value.bind(source) : value;
+} });
+export const withDatabaseClient = (client, callback) => databaseContext.run(client, callback);
 let trackerHtml;
 let loginBackground;
 let privacyHtml;
@@ -36,8 +47,10 @@ const setCookie = (token,maxAge=2592000) => `${SESSION_COOKIE}=${token}; Path=/;
 const safeFilename = value => String(value||'all').trim().replace(/[^a-z0-9_-]+/gi,'-').replace(/^-|-$/g,'')||'all';
 
 export async function initializeRuntime({ databaseUrl, assets }) {
-  if (!databaseUrl) throw new Error('DATABASE_URL is required.');
-  pool = new Pool({ connectionString: databaseUrl, max: 3 });
+  if (!databaseContext.getStore()) {
+    if (!databaseUrl) throw new Error('DATABASE_URL is required.');
+    localPool = new Pool({ connectionString: databaseUrl, max: 3 });
+  }
   trackerHtml = assets.trackerHtml;
   loginBackground = assets.loginBackground;
   privacyHtml = assets.privacyHtml;
@@ -61,14 +74,19 @@ async function shiftWorkbook(shifts,deliveryRate){
 }
 
 async function initDb(){
-  await pool.query(`CREATE TABLE IF NOT EXISTS users(user_id text PRIMARY KEY,email text UNIQUE NOT NULL,display_name text,role text NOT NULL DEFAULT 'user',status text NOT NULL DEFAULT 'active',created_at timestamptz NOT NULL,last_seen_at timestamptz NOT NULL,password_hash text,password_salt text);
-  CREATE TABLE IF NOT EXISTS tracker_state(user_id text PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,data jsonb NOT NULL,updated_at timestamptz NOT NULL);
-  CREATE TABLE IF NOT EXISTS tracker_state_history(id bigserial PRIMARY KEY,user_id text NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,data jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
-  CREATE INDEX IF NOT EXISTS tracker_state_history_user_created_idx ON tracker_state_history(user_id,created_at DESC);
-  CREATE TABLE IF NOT EXISTS sessions(token_hash text PRIMARY KEY,user_id text NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,created_at timestamptz NOT NULL,expires_at timestamptz NOT NULL);
-  CREATE TABLE IF NOT EXISTS password_reset_tokens(token_hash text PRIMARY KEY,user_id text NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,expires_at timestamptz NOT NULL,used_at timestamptz);
-  CREATE TABLE IF NOT EXISTS app_migrations(name text PRIMARY KEY,applied_at timestamptz NOT NULL DEFAULT now());`);
-  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone text; ALTER TABLE users ADD COLUMN IF NOT EXISTS address text; ALTER TABLE users ADD COLUMN IF NOT EXISTS city text;`);
+  const schemaStatements = [
+    `CREATE TABLE IF NOT EXISTS users(user_id text PRIMARY KEY,email text UNIQUE NOT NULL,display_name text,role text NOT NULL DEFAULT 'user',status text NOT NULL DEFAULT 'active',created_at timestamptz NOT NULL,last_seen_at timestamptz NOT NULL,password_hash text,password_salt text)`,
+    `CREATE TABLE IF NOT EXISTS tracker_state(user_id text PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,data jsonb NOT NULL,updated_at timestamptz NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS tracker_state_history(id bigserial PRIMARY KEY,user_id text NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,data jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT now())`,
+    `CREATE INDEX IF NOT EXISTS tracker_state_history_user_created_idx ON tracker_state_history(user_id,created_at DESC)`,
+    `CREATE TABLE IF NOT EXISTS sessions(token_hash text PRIMARY KEY,user_id text NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,created_at timestamptz NOT NULL,expires_at timestamptz NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS password_reset_tokens(token_hash text PRIMARY KEY,user_id text NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,expires_at timestamptz NOT NULL,used_at timestamptz)`,
+    `CREATE TABLE IF NOT EXISTS app_migrations(name text PRIMARY KEY,applied_at timestamptz NOT NULL DEFAULT now())`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS phone text`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS address text`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS city text`,
+  ];
+  for (const statement of schemaStatements) await pool.query(statement);
   await pool.query(`INSERT INTO users(user_id,email,display_name,role,status,created_at,last_seen_at,password_hash,password_salt) VALUES('platform-admin','admin@gmail.com','Administrator','admin','active',now(),now(),'fcd3757bb17aaf30a3570ab51c5144ab303d8f54d1c638e7d0647df7a3d86aab','75ab0b199fe826154a66984e93ff59e3') ON CONFLICT(email) DO UPDATE SET role='admin',status='active'`);
   const owner='mzll6UGvqFvra8c1By5f2Vz9yBs4F1QHOLSFeQfyvy9LLEhmlm0f9a';
   await pool.query(`INSERT INTO users(user_id,email,display_name,role,status,created_at,last_seen_at,password_hash,password_salt)

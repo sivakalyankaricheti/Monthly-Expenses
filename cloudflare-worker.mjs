@@ -1,8 +1,9 @@
 import { httpServerHandler } from 'cloudflare:node';
+import { Client } from 'pg';
 import trackerHtml from './public/tracker.html?raw';
 import privacyHtml from './public/privacy.html?raw';
 import loginBackgroundDataUrl from './public/images/login-pizza-background.png?inline';
-import { cleanupExpiredData, initializeRuntime, server } from './server.mjs';
+import { cleanupExpiredData, initializeRuntime, server, withDatabaseClient } from './server.mjs';
 
 const loginBackground = Buffer.from(loginBackgroundDataUrl.slice(loginBackgroundDataUrl.indexOf(',') + 1), 'base64');
 const port = 8787;
@@ -10,10 +11,9 @@ server.listen(port);
 const handleNodeRequest = httpServerHandler({ port });
 let initialization;
 
-async function ensureInitialized(env) {
+async function ensureInitialized() {
   if (!initialization) {
     initialization = initializeRuntime({
-      databaseUrl: env.DATABASE_URL,
       assets: { trackerHtml, loginBackground, privacyHtml },
     }).catch((error) => {
       initialization = undefined;
@@ -23,13 +23,24 @@ async function ensureInitialized(env) {
   await initialization;
 }
 
+async function withRequestClient(env, callback) {
+  const client = new Client({ connectionString: env.HYPERDRIVE.connectionString });
+  await client.connect();
+  try {
+    return await withDatabaseClient(client, async () => {
+      await ensureInitialized();
+      return callback();
+    });
+  } finally {
+    await client.end();
+  }
+}
+
 export default {
   async fetch(request, env) {
-    await ensureInitialized(env);
-    return handleNodeRequest(request);
+    return withRequestClient(env, () => handleNodeRequest(request));
   },
   async scheduled(_controller, env, ctx) {
-    await ensureInitialized(env);
-    ctx.waitUntil(cleanupExpiredData());
+    ctx.waitUntil(withRequestClient(env, () => cleanupExpiredData()));
   },
 };
