@@ -5,6 +5,7 @@ import { Pool, neonConfig } from '@neondatabase/serverless';
 import ExcelJS from 'exceljs';
 
 if (typeof WebSocket !== 'undefined') neonConfig.webSocketConstructor = WebSocket;
+neonConfig.poolQueryViaFetch = true;
 const pbkdf2 = promisify(pbkdf2Callback);
 const port = Number(process.env.PORT || 3000);
 let pool;
