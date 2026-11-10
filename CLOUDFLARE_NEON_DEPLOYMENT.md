@@ -13,7 +13,7 @@ This setup uses Cloudflare Workers for the website and API, Neon Free for Postgr
 
 ## Data expiry
 
-The Worker cron trigger runs daily at 03:00 UTC. It deletes saved history versions older than 10 days and removes a non-admin account plus its current records after 10 days without app activity. Since the trigger runs daily, inactive-account deletion may occur up to 24 hours after the 10-day threshold. Active users keep their current records; their older saved versions still expire after 10 days.
+The Worker cron trigger runs daily at 03:00 UTC. It automatically removes shifts, expenses, and payments dated more than 50 days ago from current data and recoverable history. It deletes saved history versions older than 50 days and removes a non-admin account plus its current records after 50 days without app activity. Since the trigger runs daily, cleanup may occur up to 24 hours after the 50-day threshold. Account preferences and settings remain while the account is active.
 
 ## GitHub deployment
 

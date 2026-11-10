@@ -119,10 +119,40 @@ async function initDb(){
   }
 }
 
+const DATA_RETENTION_DAYS=50;
+function retainRecentTrackerData(value, cutoffDate){
+  const data=typeof value==='string'?JSON.parse(value):value;
+  let changed=false;
+  for(const key of ['shifts','expenses','payments']){
+    if(!Array.isArray(data?.[key]))continue;
+    const kept=data[key].filter(item=>typeof item?.date!=='string'||item.date.slice(0,10)>=cutoffDate);
+    if(kept.length!==data[key].length){data[key]=kept;changed=true;}
+  }
+  return {data,changed};
+}
+
 export async function cleanupExpiredData(){
-  const backups=await pool.query("DELETE FROM tracker_state_history WHERE created_at < now() - interval '10 days'");
-  const inactive=await pool.query("DELETE FROM users WHERE role <> 'admin' AND last_seen_at < now() - interval '10 days'");
-  return {expiredBackups:backups.rowCount||0,expiredAccounts:inactive.rowCount||0};
+  const cutoff=new Date(Date.now()-DATA_RETENTION_DAYS*24*60*60*1000);
+  const cutoffDate=cutoff.toISOString().slice(0,10);
+  const current=await pool.query('SELECT user_id,data FROM tracker_state');
+  let expiredRecords=0;
+  for(const row of current.rows){
+    const {data,changed}=retainRecentTrackerData(row.data,cutoffDate);
+    if(changed){
+      const before=(row.data.shifts?.length||0)+(row.data.expenses?.length||0)+(row.data.payments?.length||0);
+      const after=(data.shifts?.length||0)+(data.expenses?.length||0)+(data.payments?.length||0);
+      expiredRecords+=before-after;
+      await pool.query('UPDATE tracker_state SET data=$1,updated_at=now() WHERE user_id=$2',[data,row.user_id]);
+    }
+  }
+  const history=await pool.query('SELECT id,data FROM tracker_state_history');
+  for(const row of history.rows){
+    const {data,changed}=retainRecentTrackerData(row.data,cutoffDate);
+    if(changed)await pool.query('UPDATE tracker_state_history SET data=$1 WHERE id=$2',[data,row.id]);
+  }
+  const backups=await pool.query("DELETE FROM tracker_state_history WHERE created_at < now() - interval '50 days'");
+  const inactive=await pool.query("DELETE FROM users WHERE role <> 'admin' AND last_seen_at < now() - interval '50 days'");
+  return {retentionDays:DATA_RETENTION_DAYS,expiredRecords,expiredBackups:backups.rowCount||0,expiredAccounts:inactive.rowCount||0};
 }
 
 async function createSession(userId){ const token=randomHex(); await pool.query('INSERT INTO sessions VALUES($1,$2,now(),now()+interval \'30 days\')',[hex(token),userId]); return token; }
