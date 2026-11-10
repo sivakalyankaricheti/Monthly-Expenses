@@ -8,7 +8,7 @@ import { cleanupExpiredData, initializeRuntime, server, withDatabaseClient } fro
 const loginBackground = Buffer.from(loginBackgroundDataUrl.slice(loginBackgroundDataUrl.indexOf(',') + 1), 'base64');
 const port = 8787;
 server.listen(port);
-const handleNodeRequest = httpServerHandler({ port });
+const nodeHandler = httpServerHandler({ port });
 let initialization;
 
 async function ensureInitialized() {
@@ -37,11 +37,11 @@ async function withRequestClient(env, callback) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     return withRequestClient(env, (contextId) => {
       const headers = new Headers(request.headers);
       headers.set('x-worker-db-context', contextId);
-      return handleNodeRequest(new Request(request, { headers }));
+      return nodeHandler.fetch(new Request(request, { headers }), env, ctx);
     });
   },
   async scheduled(_controller, env, ctx) {
