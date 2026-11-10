@@ -11,6 +11,7 @@ const pbkdf2 = promisify(pbkdf2Callback);
 const port = Number(process.env.PORT || 3000);
 let localPool;
 const databaseContext = new AsyncLocalStorage();
+const requestClients = new Map();
 const pool = new Proxy({}, { get(_target, property) {
   const requestClient = databaseContext.getStore();
   const source = requestClient || localPool;
@@ -23,7 +24,14 @@ const pool = new Proxy({}, { get(_target, property) {
   });
   return typeof value === 'function' ? value.bind(source) : value;
 } });
-export const withDatabaseClient = (client, callback) => databaseContext.run(client, callback);
+export const withDatabaseClient = (client, callback) => {
+  const contextId = randomUUID();
+  requestClients.set(contextId, client);
+  return databaseContext.run(client, async () => {
+    try { return await callback(contextId); }
+    finally { requestClients.delete(contextId); }
+  });
+};
 let trackerHtml;
 let loginBackground;
 let privacyHtml;
@@ -153,4 +161,9 @@ async function api(req,res,path){
   return send(res,404,{error:'Not found.'});
 }
 
-export const server=http.createServer(async(req,res)=>{ try{ const path=new URL(req.url,'http://localhost').pathname; if(path==='/health')return send(res,200,{ok:true}); if(path.startsWith('/api/'))return await api(req,res,path); if(path==='/'||path==='/tracker'||path==='/tracker.html'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(trackerHtml)} if(path==='/privacy'||path==='/privacy.html'||path==='/account-deletion'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(privacyHtml)} if(path==='/images/login-pizza-background.png'){res.writeHead(200,{'Content-Type':'image/png','Cache-Control':'public, max-age=31536000, immutable'});return res.end(loginBackground)} res.writeHead(404);res.end('Not found'); }catch(error){console.error(error);send(res,500,{error:'Server request failed.'})} });
+export const server=http.createServer((req,res)=>{
+  const contextId=req.headers['x-worker-db-context'];
+  const client=requestClients.get(contextId);
+  const handle=async()=>{ try{ const path=new URL(req.url,'http://localhost').pathname; if(path==='/health')return send(res,200,{ok:true}); if(path.startsWith('/api/'))return await api(req,res,path); if(path==='/'||path==='/tracker'||path==='/tracker.html'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(trackerHtml)} if(path==='/privacy'||path==='/privacy.html'||path==='/account-deletion'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(privacyHtml)} if(path==='/images/login-pizza-background.png'){res.writeHead(200,{'Content-Type':'image/png','Cache-Control':'public, max-age=31536000, immutable'});return res.end(loginBackground)} res.writeHead(404);res.end('Not found'); }catch(error){console.error(error);send(res,500,{error:'Server request failed.'})} };
+  return client ? databaseContext.run(client, handle) : handle();
+});

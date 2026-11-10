@@ -27,9 +27,9 @@ async function withRequestClient(env, callback) {
   const client = new Client({ connectionString: env.HYPERDRIVE.connectionString });
   await client.connect();
   try {
-    return await withDatabaseClient(client, async () => {
+    return await withDatabaseClient(client, async (contextId) => {
       await ensureInitialized();
-      return callback();
+      return callback(contextId);
     });
   } finally {
     await client.end();
@@ -38,7 +38,11 @@ async function withRequestClient(env, callback) {
 
 export default {
   async fetch(request, env) {
-    return withRequestClient(env, () => handleNodeRequest(request));
+    return withRequestClient(env, (contextId) => {
+      const headers = new Headers(request.headers);
+      headers.set('x-worker-db-context', contextId);
+      return handleNodeRequest(new Request(request, { headers }));
+    });
   },
   async scheduled(_controller, env, ctx) {
     ctx.waitUntil(withRequestClient(env, () => cleanupExpiredData()));
